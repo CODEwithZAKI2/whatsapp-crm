@@ -1,0 +1,5 @@
+id,text
+t5,"Hello {{name}}, I hope your day is going well! I’m reaching out to learn more about your business experience. Would you be open to answering a few quick questions?"
+t6,"Hi {{name}}, this is Ahmed. I’m conducting a short survey to understand how local businesses operate. Can I take a moment of your time?"
+t7,"Dear {{name}}, I’m gathering insights from business owners in the area. If you have a few minutes, I’d love to ask you some questions."
+t8,"Good afternoon {{name}}, I’m working on a project about business practices. Would you be willing to share your thoughts in a brief chat?"

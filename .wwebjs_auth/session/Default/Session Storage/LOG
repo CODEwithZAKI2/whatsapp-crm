@@ -1,0 +1,4 @@
+2025/04/30-16:24:26.360 7508 Reusing MANIFEST D:\Npu courses\semester 2\whatsapp-crm\.wwebjs_auth\session\Default\Session Storage/MANIFEST-000001
+2025/04/30-16:24:26.360 7508 Recovering log #3
+2025/04/30-16:24:26.360 7508 (ignoring error) D:\Npu courses\semester 2\whatsapp-crm\.wwebjs_auth\session\Default\Session Storage/000003.log: dropping 236 bytes; Corruption: checksum mismatch
+2025/04/30-16:24:26.361 7508 Reusing old log D:\Npu courses\semester 2\whatsapp-crm\.wwebjs_auth\session\Default\Session Storage/000003.log 

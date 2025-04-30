@@ -1,0 +1,6 @@
+/node_modules/
+dist/
+.env
+data/clients.csv
+data/templates.csv
+data/sentLog.json
