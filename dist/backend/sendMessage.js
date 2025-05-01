@@ -20,16 +20,23 @@ const qrcode = require("qrcode-terminal");
 const CLIENTS_CSV = path.join(__dirname, '../data/clients.csv');
 const TEMPLATES_CSV = path.join(__dirname, '../data/templates.csv');
 const SENT_LOG_JSON = path.join(__dirname, '../data/sentLog.json');
+const SESSION_FOLDER = path.join(__dirname, '..', '.wwebjs_auth'); // or your LocalAuth config
 let whatsappClient = null;
 let isReady = false;
 // Enhanced initialization with more logging and QR code
 function initWhatsAppClient() {
     if (!whatsappClient) {
+        // Ensure session folder exists for LocalAuth to persist session
+        if (!fs.existsSync(SESSION_FOLDER)) {
+            fs.mkdirSync(SESSION_FOLDER, { recursive: true });
+        }
         console.log('[initWhatsAppClient] Creating WhatsApp client...');
-        whatsappClient = new whatsapp_web_js_1.Client({ authStrategy: new whatsapp_web_js_1.LocalAuth() });
+        whatsappClient = new whatsapp_web_js_1.Client({ authStrategy: new whatsapp_web_js_1.LocalAuth({ dataPath: SESSION_FOLDER }) });
         whatsappClient.on('qr', (qr) => {
-            console.log('[initWhatsAppClient] QR code event fired. Scan this QR code with your WhatsApp:');
-            qrcode.generate(qr, { small: true });
+            if (!isReady) { // Only show QR if not ready
+                console.log('[initWhatsAppClient] QR code event fired. Scan this QR code with your WhatsApp:');
+                qrcode.generate(qr, { small: true });
+            }
         });
         whatsappClient.on('ready', () => {
             isReady = true;
