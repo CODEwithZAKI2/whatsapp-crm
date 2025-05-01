@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp CRM</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f4f6fb; margin: 0; }
+        h1 { text-align: center; color: #2d3a4b; }
+        .tabs { display: flex; justify-content: center; margin: 20px 0; }
+        .tab-btn {
+            background: #fff; border: 1px solid #d1d5db; padding: 10px 30px; cursor: pointer;
+            margin: 0 5px; border-radius: 5px 5px 0 0; font-weight: bold; color: #2d3a4b;
+        }
+        .tab-btn.active { background: #2d3a4b; color: #fff; }
+        .tab-content { background: #fff; border: 1px solid #d1d5db; border-radius: 0 0 8px 8px; max-width: 800px; margin: 0 auto 30px; padding: 30px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        th, td { border: 1px solid #e5e7eb; padding: 8px 12px; text-align: left; }
+        th { background: #f3f4f6; }
+        tr:nth-child(even) { background: #f9fafb; }
+        .form-row { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; color: #374151; }
+        input, select, textarea { width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; }
+        button, .btn { background: #2d3a4b; color: #fff; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; }
+        button:hover, .btn:hover { background: #1e293b; }
+        .actions button { margin-right: 5px; }
+        .flex { display: flex; gap: 10px; }
+        .flex-row { flex-direction: row; }
+        .flex-col { flex-direction: column; }
+        .center { justify-content: center; align-items: center; }
+        .hidden { display: none; }
+        .success { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>WhatsApp CRM</h1>
+    <div class="tabs">
+        <button class="tab-btn active" data-tab="send">Send Message</button>
+        <button class="tab-btn" data-tab="scheduler">Scheduler</button>
+        <button class="tab-btn" data-tab="clients">Clients</button>
+        <button class="tab-btn" data-tab="templates">Templates</button>
+        <button class="tab-btn" data-tab="sentlog">Sent Log</button>
+    </div>
+    <div id="send" class="tab-content">
+        <h2>Send Message</h2>
+        <form id="sendMessageForm">
+            <div class="form-row">
+                <label for="clientId">Client</label>
+                <select id="clientId" name="clientId"></select>
+            </div>
+            <div class="form-row">
+                <label for="templateId">Template</label>
+                <select id="templateId" name="templateId"></select>
+            </div>
+            <button type="submit">Send Message</button>
+        </form>
+        <div id="sendMessageStatus"></div>
+    </div>
+    <div id="scheduler" class="tab-content hidden">
+        <h2>Scheduler</h2>
+        <button id="startSchedulerBtn">Start Scheduler</button>
+        <div id="schedulerStatus"></div>
+    </div>
+    <div id="clients" class="tab-content hidden">
+        <h2>Clients</h2>
+        <table id="clientsTable">
+            <thead>
+                <tr>
+                    <th>ID</th><th>Name</th><th>Phone</th><th>Opt-In</th><th>Actions</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+        <h3 id="clientFormTitle">Add Client</h3>
+        <form id="clientForm">
+            <input type="hidden" id="editClientId">
+            <div class="form-row"><label>Name</label><input id="clientName" required></div>
+            <div class="form-row"><label>Phone</label><input id="clientPhone" required></div>
+            <div class="form-row"><label>Opt-In</label>
+                <select id="clientOptIn"><option value="true">Yes</option><option value="false">No</option></select>
+            </div>
+            <button type="submit">Save Client</button>
+            <button type="button" id="cancelEditClient" class="btn hidden">Cancel</button>
+        </form>
+        <div id="clientFormStatus"></div>
+    </div>
+    <div id="templates" class="tab-content hidden">
+        <h2>Templates</h2>
+        <table id="templatesTable">
+            <thead>
+                <tr>
+                    <th>ID</th><th>Text</th><th>Actions</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+        <h3 id="templateFormTitle">Add Template</h3>
+        <form id="templateForm">
+            <input type="hidden" id="editTemplateId">
+            <div class="form-row"><label>Text</label><textarea id="templateText" required></textarea></div>
+            <button type="submit">Save Template</button>
+            <button type="button" id="cancelEditTemplate" class="btn hidden">Cancel</button>
+        </form>
+        <div id="templateFormStatus"></div>
+    </div>
+    <div id="sentlog" class="tab-content hidden">
+        <h2>Sent Log</h2>
+        <div style="margin-bottom:10px;">
+            <label for="sentLogFilter">Filter by Status:</label>
+            <select id="sentLogFilter">
+                <option value="">All</option>
+                <option value="sent">Sent</option>
+                <option value="error">Error</option>
+            </select>
+            <input type="text" id="sentLogSearch" placeholder="Search by Client ID, Template ID, or Error" style="margin-left:10px; width:200px;">
+            <button id="refreshSentLogBtn">Refresh</button>
+        </div>
+        <table id="sentLogTable">
+            <thead>
+                <tr>
+                    <th>Client ID</th>
+                    <th>Template ID</th>
+                    <th>Time</th>
+                    <th>Status</th>
+                    <th>Error</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+    <script>
+        // --- Tab logic ---
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                document.querySelectorAll('.tab-content').forEach(tab => tab.classList.add('hidden'));
+                document.getElementById(btn.dataset.tab).classList.remove('hidden');
+                if (btn.dataset.tab === 'sentlog') renderSentLogTable();
+            });
+        });
+
+        // --- Fetch and populate clients and templates ---
+        async function fetchClients() {
+            const res = await fetch('/clients');
+            const data = await res.json();
+            return data.clients || [];
+        }
+        async function fetchTemplates() {
+            const res = await fetch('/templates');
+            const data = await res.json();
+            return data.templates || [];
+        }
+        async function refreshClientSelect() {
+            const clients = await fetchClients();
+            const select = document.getElementById('clientId');
+            select.innerHTML = '';
+            clients.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.id;
+                opt.textContent = `${c.name} (${c.phone})`;
+                select.appendChild(opt);
+            });
+        }
+        async function refreshTemplateSelect() {
+            const templates = await fetchTemplates();
+            const select = document.getElementById('templateId');
+            select.innerHTML = '';
+            templates.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t.id;
+                opt.textContent = t.text.length > 40 ? t.text.slice(0, 40) + '...' : t.text;
+                select.appendChild(opt);
+            });
+        }
+
+        // --- Send Message ---
+        document.getElementById('sendMessageForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const clientId = document.getElementById('clientId').value;
+            const templateId = document.getElementById('templateId').value;
+            const statusDiv = document.getElementById('sendMessageStatus');
+            statusDiv.textContent = 'Sending...';
+            try {
+                const response = await fetch('/send-message', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ clientId, templateId })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    statusDiv.textContent = 'Message sent successfully!';
+                    statusDiv.className = 'success';
+                } else {
+                    statusDiv.textContent = result.message || 'Failed to send message';
+                    statusDiv.className = 'error';
+                }
+            } catch (err) {
+                statusDiv.textContent = 'Error sending message';
+                statusDiv.className = 'error';
+            }
+        });
+
+        // --- Scheduler ---
+        document.getElementById('startSchedulerBtn').addEventListener('click', async () => {
+            const statusDiv = document.getElementById('schedulerStatus');
+            statusDiv.textContent = 'Starting scheduler...';
+            try {
+                const response = await fetch('/start-scheduler', { method: 'POST' });
+                const result = await response.json();
+                if (result.success) {
+                    statusDiv.textContent = 'Scheduler started!';
+                    statusDiv.className = 'success';
+                } else {
+                    statusDiv.textContent = result.message || 'Failed to start scheduler';
+                    statusDiv.className = 'error';
+                }
+            } catch (err) {
+                statusDiv.textContent = 'Error starting scheduler';
+                statusDiv.className = 'error';
+            }
+        });
+
+        // --- Clients CRUD ---
+        async function renderClientsTable() {
+            const clients = await fetchClients();
+            const tbody = document.querySelector('#clientsTable tbody');
+            tbody.innerHTML = '';
+            clients.forEach(c => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${c.id}</td>
+                    <td>${c.name}</td>
+                    <td>${c.phone}</td>
+                    <td>${c.optIn ? 'Yes' : 'No'}</td>
+                    <td class="actions">
+                        <button onclick="editClient('${c.id}')">Edit</button>
+                        <button onclick="deleteClient('${c.id}')">Delete</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+        window.editClient = function(id) {
+            fetchClients().then(clients => {
+                const c = clients.find(x => x.id === id);
+                if (!c) return;
+                document.getElementById('editClientId').value = c.id;
+                document.getElementById('clientName').value = c.name;
+                document.getElementById('clientPhone').value = c.phone;
+                document.getElementById('clientOptIn').value = c.optIn ? 'true' : 'false';
+                document.getElementById('clientFormTitle').textContent = 'Edit Client';
+                document.getElementById('cancelEditClient').classList.remove('hidden');
+            });
+        }
+        window.deleteClient = async function(id) {
+            if (!confirm('Delete this client?')) return;
+            await fetch(`/clients/${id}`, { method: 'DELETE' });
+            renderClientsTable();
+            refreshClientSelect();
+        }
+        document.getElementById('clientForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = document.getElementById('editClientId').value;
+            const name = document.getElementById('clientName').value;
+            const phone = document.getElementById('clientPhone').value;
+            const optIn = document.getElementById('clientOptIn').value === 'true';
+            const statusDiv = document.getElementById('clientFormStatus');
+            let url = '/clients', method = 'POST';
+            if (id) {
+                url = `/clients/${id}`;
+                method = 'PUT';
+            }
+            const res = await fetch(url, {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, phone, optIn })
+            });
+            const result = await res.json();
+            if (result.success) {
+                statusDiv.textContent = 'Saved!';
+                statusDiv.className = 'success';
+                renderClientsTable();
+                refreshClientSelect();
+                document.getElementById('clientForm').reset();
+                document.getElementById('editClientId').value = '';
+                document.getElementById('clientFormTitle').textContent = 'Add Client';
+                document.getElementById('cancelEditClient').classList.add('hidden');
+            } else {
+                statusDiv.textContent = result.message || 'Error';
+                statusDiv.className = 'error';
+            }
+        });
+        document.getElementById('cancelEditClient').addEventListener('click', () => {
+            document.getElementById('clientForm').reset();
+            document.getElementById('editClientId').value = '';
+            document.getElementById('clientFormTitle').textContent = 'Add Client';
+            document.getElementById('cancelEditClient').classList.add('hidden');
+        });
+
+        // --- Templates CRUD ---
+        async function renderTemplatesTable() {
+            const templates = await fetchTemplates();
+            const tbody = document.querySelector('#templatesTable tbody');
+            tbody.innerHTML = '';
+            templates.forEach(t => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${t.id}</td>
+                    <td>${t.text}</td>
+                    <td class="actions">
+                        <button onclick="editTemplate('${t.id}')">Edit</button>
+                        <button onclick="deleteTemplate('${t.id}')">Delete</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+        window.editTemplate = function(id) {
+            fetchTemplates().then(templates => {
+                const t = templates.find(x => x.id === id);
+                if (!t) return;
+                document.getElementById('editTemplateId').value = t.id;
+                document.getElementById('templateText').value = t.text;
+                document.getElementById('templateFormTitle').textContent = 'Edit Template';
+                document.getElementById('cancelEditTemplate').classList.remove('hidden');
+            });
+        }
+        window.deleteTemplate = async function(id) {
+            if (!confirm('Delete this template?')) return;
+            await fetch(`/templates/${id}`, { method: 'DELETE' });
+            renderTemplatesTable();
+            refreshTemplateSelect();
+        }
+        document.getElementById('templateForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = document.getElementById('editTemplateId').value;
+            const text = document.getElementById('templateText').value;
+            const statusDiv = document.getElementById('templateFormStatus');
+            let url = '/templates', method = 'POST';
+            if (id) {
+                url = `/templates/${id}`;
+                method = 'PUT';
+            }
+            const res = await fetch(url, {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text })
+            });
+            const result = await res.json();
+            if (result.success) {
+                statusDiv.textContent = 'Saved!';
+                statusDiv.className = 'success';
+                renderTemplatesTable();
+                refreshTemplateSelect();
+                document.getElementById('templateForm').reset();
+                document.getElementById('editTemplateId').value = '';
+                document.getElementById('templateFormTitle').textContent = 'Add Template';
+                document.getElementById('cancelEditTemplate').classList.add('hidden');
+            } else {
+                statusDiv.textContent = result.message || 'Error';
+                statusDiv.className = 'error';
+            }
+        });
+        document.getElementById('cancelEditTemplate').addEventListener('click', () => {
+            document.getElementById('templateForm').reset();
+            document.getElementById('editTemplateId').value = '';
+            document.getElementById('templateFormTitle').textContent = 'Add Template';
+            document.getElementById('cancelEditTemplate').classList.add('hidden');
+        });
+
+        // --- Sent Log ---
+        async function fetchSentLog() {
+            const res = await fetch('/sent-log');
+            const data = await res.json();
+            return data.sentLog || [];
+        }
+        async function renderSentLogTable() {
+            let sentLog = await fetchSentLog();
+            const filter = document.getElementById('sentLogFilter').value;
+            const search = document.getElementById('sentLogSearch').value.trim().toLowerCase();
+            if (filter) {
+                sentLog = sentLog.filter(log => log.status === filter);
+            }
+            if (search) {
+                sentLog = sentLog.filter(log =>
+                    (log.clientId && log.clientId.toLowerCase().includes(search)) ||
+                    (log.templateId && log.templateId.toLowerCase().includes(search)) ||
+                    (log.error && log.error.toLowerCase().includes(search))
+                );
+            }
+            // Sort by time descending
+            sentLog.sort((a, b) => {
+                const ta = a.time ? new Date(a.time).getTime() : 0;
+                const tb = b.time ? new Date(b.time).getTime() : 0;
+                return tb - ta;
+            });
+            const tbody = document.querySelector('#sentLogTable tbody');
+            tbody.innerHTML = '';
+            sentLog.forEach(log => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${log.clientId || ''}</td>
+                    <td>${log.templateId || ''}</td>
+                    <td>${log.time ? new Date(log.time).toLocaleString() : ''}</td>
+                    <td>${log.status || ''}</td>
+                    <td style="color:${log.status === 'error' ? 'red' : ''}">${log.error ? log.error : ''}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+        document.getElementById('refreshSentLogBtn').addEventListener('click', renderSentLogTable);
+        document.getElementById('sentLogFilter').addEventListener('change', renderSentLogTable);
+        document.getElementById('sentLogSearch').addEventListener('input', renderSentLogTable);
+
+        // --- Initial load ---
+        refreshClientSelect();
+        refreshTemplateSelect();
+        renderClientsTable();
+        renderTemplatesTable();
+    </script>
+</body>
+</html>

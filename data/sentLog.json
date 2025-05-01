@@ -1,0 +1,38 @@
+[
+  {
+    "clientId": "1",
+    "templateId": "t5",
+    "time": "2025-05-01T12:56:37.130Z",
+    "status": "sent"
+  },
+  {
+    "clientId": "1",
+    "templateId": "t5",
+    "time": "2025-05-01T13:37:58.264Z",
+    "status": "sent"
+  },
+  {
+    "clientId": "1",
+    "templateId": "t5",
+    "time": "2025-05-01T14:04:21.544Z",
+    "status": "sent"
+  },
+  {
+    "clientId": "2",
+    "templateId": "t8",
+    "time": "2025-05-01T14:06:09.644Z",
+    "status": "sent"
+  },
+  {
+    "clientId": "2",
+    "templateId": "NaN",
+    "time": "2025-05-01T14:12:00.420Z",
+    "status": "sent"
+  },
+  {
+    "clientId": "1",
+    "templateId": "t9",
+    "time": "2025-05-01T19:41:29.910Z",
+    "status": "sent"
+  }
+]
