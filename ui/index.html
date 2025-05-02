@@ -59,8 +59,15 @@
     </div>
     <div id="scheduler" class="tab-content hidden">
         <h2>Scheduler</h2>
-        <button id="startSchedulerBtn">Start Scheduler</button>
+        <div style="margin-bottom:15px;">
+            <label for="scheduleStartTime">Start Time (China Time):</label>
+            <input type="datetime-local" id="scheduleStartTime">
+            <button id="startSchedulerBtn">Start Scheduler</button>
+            <button id="stopSchedulerBtn">Stop Scheduler</button>
+        </div>
         <div id="schedulerStatus"></div>
+        <div id="nextMessageInfo" style="margin-top:15px; color:#374151;"></div>
+        <div id="nextMessageCountdown" style="margin-top:5px; color:#1e293b; font-weight:bold;"></div>
     </div>
     <div id="clients" class="tab-content hidden">
         <h2>Clients</h2>
@@ -203,23 +210,138 @@
         });
 
         // --- Scheduler ---
+        let schedulerCountdownInterval = null;
+        let schedulerCountdownTarget = null;
+        let schedulerNextClientInfo = null;
+        let schedulerLastDelayMs = null;
+
+        async function fetchClientById(id) {
+            const clients = await fetchClients();
+            return clients.find(c => c.id === id);
+        }
+
+        async function updateSchedulerStatus() {
+            const res = await fetch('/scheduler-status');
+            const data = await res.json();
+            const statusDiv = document.getElementById('schedulerStatus');
+            const nextMsgDiv = document.getElementById('nextMessageInfo');
+            const countdownDiv = document.getElementById('nextMessageCountdown');
+            if (data.running) {
+                statusDiv.textContent = `Scheduler is running. Sent count: ${data.sentCount || 0}`;
+                if (data.nextMessageInfo && data.nextMessageInfo.clientId && data.nextMessageInfo.delayMs !== undefined) {
+                    // Fetch client info for display
+                    const client = await fetchClientById(data.nextMessageInfo.clientId);
+                    let clientInfo = '';
+                    if (client) {
+                        clientInfo = `Client: <b>${client.id}</b> - <b>${client.name}</b> (${client.phone})`;
+                    } else {
+                        clientInfo = `Client ID: <b>${data.nextMessageInfo.clientId}</b>`;
+                    }
+                    // Only reset the countdown if the client or delay has changed
+                    if (
+                        schedulerCountdownTarget === null ||
+                        schedulerNextClientInfo !== clientInfo ||
+                        schedulerLastDelayMs !== data.nextMessageInfo.delayMs
+                    ) {
+                        if (schedulerCountdownInterval) clearInterval(schedulerCountdownInterval);
+                        schedulerCountdownTarget = Date.now() + data.nextMessageInfo.delayMs;
+                        schedulerNextClientInfo = clientInfo;
+                        schedulerLastDelayMs = data.nextMessageInfo.delayMs;
+                        schedulerCountdownInterval = setInterval(updateCountdown, 1000);
+                    }
+                    const min = Math.floor((schedulerCountdownTarget - Date.now()) / 60000);
+                    const sec = Math.floor(((schedulerCountdownTarget - Date.now()) % 60000) / 1000);
+                    nextMsgDiv.innerHTML = `Next message to ${clientInfo} will be sent in <span id="countdownTime">${min}:${sec.toString().padStart(2, '0')}</span> (mm:ss).`;
+                    updateCountdown();
+                } else {
+                    nextMsgDiv.textContent = '';
+                    countdownDiv.textContent = '';
+                    if (schedulerCountdownInterval) clearInterval(schedulerCountdownInterval);
+                    schedulerCountdownTarget = null;
+                    schedulerNextClientInfo = null;
+                    schedulerLastDelayMs = null;
+                }
+            } else {
+                statusDiv.textContent = 'Scheduler is not running.';
+                nextMsgDiv.textContent = '';
+                countdownDiv.textContent = '';
+                if (schedulerCountdownInterval) clearInterval(schedulerCountdownInterval);
+                schedulerCountdownTarget = null;
+                schedulerNextClientInfo = null;
+                schedulerLastDelayMs = null;
+            }
+        }
+
+        function updateCountdown() {
+            const countdownDiv = document.getElementById('nextMessageCountdown');
+            if (!schedulerCountdownTarget) {
+                countdownDiv.textContent = '';
+                return;
+            }
+            const now = Date.now();
+            let diff = schedulerCountdownTarget - now;
+            if (diff < 0) diff = 0;
+            const min = Math.floor(diff / 60000);
+            const sec = Math.floor((diff % 60000) / 1000);
+            countdownDiv.innerHTML = `Time left: <span style="color:#2563eb">${min}:${sec.toString().padStart(2, '0')}</span> (mm:ss) for ${schedulerNextClientInfo || ''}`;
+            if (diff === 0 && schedulerCountdownInterval) {
+                clearInterval(schedulerCountdownInterval);
+            }
+        }
+
         document.getElementById('startSchedulerBtn').addEventListener('click', async () => {
             const statusDiv = document.getElementById('schedulerStatus');
+            const startTimeInput = document.getElementById('scheduleStartTime');
+            let startTime = startTimeInput.value;
             statusDiv.textContent = 'Starting scheduler...';
             try {
-                const response = await fetch('/start-scheduler', { method: 'POST' });
+                const response = await fetch('/start-scheduler', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ startTime })
+                });
                 const result = await response.json();
                 if (result.success) {
                     statusDiv.textContent = 'Scheduler started!';
-                    statusDiv.className = 'success';
+                    updateSchedulerStatus();
                 } else {
                     statusDiv.textContent = result.message || 'Failed to start scheduler';
-                    statusDiv.className = 'error';
                 }
             } catch (err) {
                 statusDiv.textContent = 'Error starting scheduler';
-                statusDiv.className = 'error';
             }
+        });
+
+        document.getElementById('stopSchedulerBtn').addEventListener('click', async () => {
+            const statusDiv = document.getElementById('schedulerStatus');
+            statusDiv.textContent = 'Stopping scheduler...';
+            try {
+                const response = await fetch('/stop-scheduler', { method: 'POST' });
+                const result = await response.json();
+                if (result.success) {
+                    statusDiv.textContent = 'Scheduler stopped!';
+                    updateSchedulerStatus();
+                } else {
+                    statusDiv.textContent = result.message || 'Failed to stop scheduler';
+                }
+            } catch (err) {
+                statusDiv.textContent = 'Error stopping scheduler';
+            }
+        });
+
+        // Poll scheduler status every 10 seconds when on Scheduler tab
+        let schedulerStatusInterval = null;
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (btn.dataset.tab === 'scheduler') {
+                    updateSchedulerStatus();
+                    if (schedulerStatusInterval) clearInterval(schedulerStatusInterval);
+                    schedulerStatusInterval = setInterval(updateSchedulerStatus, 10000);
+                } else {
+                    if (schedulerStatusInterval) clearInterval(schedulerStatusInterval);
+                    if (schedulerCountdownInterval) clearInterval(schedulerCountdownInterval);
+                }
+            });
         });
 
         // --- Clients CRUD ---

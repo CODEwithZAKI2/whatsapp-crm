@@ -155,6 +155,7 @@ app.get('/sent-log', (req, res) => {
 });
 // --- SCHEDULER ---
 let scheduler = null;
+let schedulerStartTimeout = null;
 app.post('/start-scheduler', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     if (scheduler && scheduler.state && !scheduler.state.paused) {
         res.json({ success: false, message: 'Scheduler already running.' });
@@ -175,9 +176,54 @@ app.post('/start-scheduler', (req, res) => __awaiter(void 0, void 0, void 0, fun
             throw err;
         }
     });
+    // Handle scheduled start time
+    if (schedulerStartTimeout) {
+        clearTimeout(schedulerStartTimeout);
+        schedulerStartTimeout = null;
+    }
+    const { startTime } = req.body;
+    if (startTime) {
+        const startTimestamp = new Date(startTime).getTime();
+        const now = Date.now();
+        if (startTimestamp > now) {
+            const delay = startTimestamp - now;
+            console.log(`[Scheduler] Will start at ${startTime} (in ${Math.round(delay / 1000)} seconds)`);
+            schedulerStartTimeout = setTimeout(() => {
+                scheduler.start();
+            }, delay);
+            res.json({ success: true, message: `Scheduler will start at ${startTime}` });
+            return;
+        }
+    }
     scheduler.start();
     res.json({ success: true, message: 'Scheduler started!' });
 }));
+app.post('/stop-scheduler', (req, res) => {
+    if (scheduler) {
+        scheduler.pause();
+        if (schedulerStartTimeout) {
+            clearTimeout(schedulerStartTimeout);
+            schedulerStartTimeout = null;
+        }
+        res.json({ success: true, message: 'Scheduler stopped.' });
+    }
+    else {
+        res.json({ success: false, message: 'Scheduler is not running.' });
+    }
+});
+// Scheduler status endpoint for UI
+app.get('/scheduler-status', (req, res) => {
+    if (!scheduler) {
+        res.json({ running: false });
+        return;
+    }
+    const stats = scheduler.getStats();
+    res.json({
+        running: !scheduler.state.paused,
+        sentCount: stats.sentCount,
+        nextMessageInfo: stats.nextMessageInfo
+    });
+});
 // --- MESSAGES FROM OPEN CHATS ---
 app.get('/current-messages', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {

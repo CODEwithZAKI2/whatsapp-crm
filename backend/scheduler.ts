@@ -18,6 +18,7 @@ export class SafeScheduler {
     private timer: NodeJS.Timeout | null = null;
     private addEmojis: boolean;
     public sendFunction?: (client: Client, template: MessageTemplate, msg: string) => Promise<void>;
+    public nextMessageInfo: { clientId?: string, delayMs?: number } = {};
 
     constructor(clients: Client[], templates: MessageTemplate[], addEmojis: boolean) {
         this.clients = clients;
@@ -47,14 +48,32 @@ export class SafeScheduler {
     private scheduleNext() {
         if (this.state.paused) return;
 
-        let delay = 0;
-        if (this.state.phase === 1) {
-            delay = 90_000 + Math.floor(Math.random() * 60_000); // 90-150s
-        } else if (this.state.phase === 2) {
-            delay = 180_000 + Math.floor(Math.random() * 120_000); // 3-5min
-        } else {
-            delay = 24 * 60 * 60 * 1000; // 24h reset
+        // Daily limit
+        const DAILY_LIMIT = 30;
+        if (this.state.sentCount >= DAILY_LIMIT) {
+            console.log(`[SafeScheduler] Daily limit of ${DAILY_LIMIT} reached. Scheduler paused for 24h.`);
+            this.state.paused = true;
+            this.timer = setTimeout(() => {
+                this.state.phase = 1;
+                this.state.sentCount = 0;
+                this.state.startTime = Date.now();
+                this.state.paused = false;
+                this.scheduleNext();
+            }, 24 * 60 * 60 * 1000);
+            return;
         }
+
+        let delay = 0;
+        // After every 10 messages, wait 40–60 minutes
+        if (this.state.sentCount > 0 && this.state.sentCount % 10 === 0) {
+            delay = 40 * 60 * 1000 + Math.floor(Math.random() * (20 * 60 * 1000)); // 40-60 min
+        } else {
+            delay = 3 * 60 * 1000 + Math.floor(Math.random() * (2 * 60 * 1000)); // 3-5 min
+        }
+
+        // Find next client for info
+        const client = this.clients.find(c => !c.lastSent);
+        this.nextMessageInfo = client ? { clientId: client.id, delayMs: delay } : {};
 
         this.timer = setTimeout(() => this.sendNext(), delay);
     }
@@ -86,7 +105,6 @@ export class SafeScheduler {
 
         const msg = personalizeTemplate(template, client, this.addEmojis);
 
-        // WhatsApp send integration
         try {
             if (this.sendFunction) {
                 await this.sendFunction(client, template, msg);
@@ -117,6 +135,7 @@ export class SafeScheduler {
             phase: this.state.phase,
             sentCount: this.state.sentCount,
             nextIn: this.timer ? Math.max(0, (this.timer as any)._idleStart + (this.timer as any)._idleTimeout - Date.now()) : 0,
+            nextMessageInfo: this.nextMessageInfo
         };
     }
 }

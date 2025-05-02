@@ -41,6 +41,7 @@ var templateEngine_1 = require("./templateEngine");
 var SafeScheduler = /** @class */ (function () {
     function SafeScheduler(clients, templates, addEmojis) {
         this.timer = null;
+        this.nextMessageInfo = {};
         this.clients = clients;
         this.templates = templates;
         this.logs = [];
@@ -67,16 +68,31 @@ var SafeScheduler = /** @class */ (function () {
         var _this = this;
         if (this.state.paused)
             return;
-        var delay = 0;
-        if (this.state.phase === 1) {
-            delay = 90000 + Math.floor(Math.random() * 60000); // 90-150s
+        // Daily limit
+        var DAILY_LIMIT = 30;
+        if (this.state.sentCount >= DAILY_LIMIT) {
+            console.log("[SafeScheduler] Daily limit of ".concat(DAILY_LIMIT, " reached. Scheduler paused for 24h."));
+            this.state.paused = true;
+            this.timer = setTimeout(function () {
+                _this.state.phase = 1;
+                _this.state.sentCount = 0;
+                _this.state.startTime = Date.now();
+                _this.state.paused = false;
+                _this.scheduleNext();
+            }, 24 * 60 * 60 * 1000);
+            return;
         }
-        else if (this.state.phase === 2) {
-            delay = 180000 + Math.floor(Math.random() * 120000); // 3-5min
+        var delay = 0;
+        // After every 10 messages, wait 40–60 minutes
+        if (this.state.sentCount > 0 && this.state.sentCount % 10 === 0) {
+            delay = 40 * 60 * 1000 + Math.floor(Math.random() * (20 * 60 * 1000)); // 40-60 min
         }
         else {
-            delay = 24 * 60 * 60 * 1000; // 24h reset
+            delay = 3 * 60 * 1000 + Math.floor(Math.random() * (2 * 60 * 1000)); // 3-5 min
         }
+        // Find next client for info
+        var client = this.clients.find(function (c) { return !c.lastSent; });
+        this.nextMessageInfo = client ? { clientId: client.id, delayMs: delay } : {};
         this.timer = setTimeout(function () { return _this.sendNext(); }, delay);
     };
     SafeScheduler.prototype.sendNext = function () {
@@ -148,6 +164,7 @@ var SafeScheduler = /** @class */ (function () {
             phase: this.state.phase,
             sentCount: this.state.sentCount,
             nextIn: this.timer ? Math.max(0, this.timer._idleStart + this.timer._idleTimeout - Date.now()) : 0,
+            nextMessageInfo: this.nextMessageInfo
         };
     };
     return SafeScheduler;

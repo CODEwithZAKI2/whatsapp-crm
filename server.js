@@ -218,8 +218,9 @@ app.get('/sent-log', function (req, res) {
 });
 // --- SCHEDULER ---
 var scheduler = null;
+var schedulerStartTimeout = null;
 app.post('/start-scheduler', function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
-    var clients, templates;
+    var clients, templates, startTime, startTimestamp, now, delay;
     return __generator(this, function (_a) {
         if (scheduler && scheduler.state && !scheduler.state.paused) {
             res.json({ success: false, message: 'Scheduler already running.' });
@@ -248,11 +249,56 @@ app.post('/start-scheduler', function (req, res) { return __awaiter(void 0, void
                 }
             });
         }); };
+        // Handle scheduled start time
+        if (schedulerStartTimeout) {
+            clearTimeout(schedulerStartTimeout);
+            schedulerStartTimeout = null;
+        }
+        startTime = req.body.startTime;
+        if (startTime) {
+            startTimestamp = new Date(startTime).getTime();
+            now = Date.now();
+            if (startTimestamp > now) {
+                delay = startTimestamp - now;
+                console.log("[Scheduler] Will start at ".concat(startTime, " (in ").concat(Math.round(delay / 1000), " seconds)"));
+                schedulerStartTimeout = setTimeout(function () {
+                    scheduler.start();
+                }, delay);
+                res.json({ success: true, message: "Scheduler will start at ".concat(startTime) });
+                return [2 /*return*/];
+            }
+        }
         scheduler.start();
         res.json({ success: true, message: 'Scheduler started!' });
         return [2 /*return*/];
     });
 }); });
+app.post('/stop-scheduler', function (req, res) {
+    if (scheduler) {
+        scheduler.pause();
+        if (schedulerStartTimeout) {
+            clearTimeout(schedulerStartTimeout);
+            schedulerStartTimeout = null;
+        }
+        res.json({ success: true, message: 'Scheduler stopped.' });
+    }
+    else {
+        res.json({ success: false, message: 'Scheduler is not running.' });
+    }
+});
+// Scheduler status endpoint for UI
+app.get('/scheduler-status', function (req, res) {
+    if (!scheduler) {
+        res.json({ running: false });
+        return;
+    }
+    var stats = scheduler.getStats();
+    res.json({
+        running: !scheduler.state.paused,
+        sentCount: stats.sentCount,
+        nextMessageInfo: stats.nextMessageInfo
+    });
+});
 // --- MESSAGES FROM OPEN CHATS ---
 app.get('/current-messages', function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
     var client, chats, allMessages_1, _loop_1, _i, chats_1, chat, err_2, errorMsg;
