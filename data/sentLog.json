@@ -76,5 +76,11 @@
     "templateId": "t5",
     "time": "2025-05-02T12:35:12.041Z",
     "status": "sent"
+  },
+  {
+    "clientId": "1",
+    "templateId": "t9",
+    "time": "2025-05-02T12:59:53.614Z",
+    "status": "sent"
   }
 ]

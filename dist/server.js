@@ -13,6 +13,8 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const path = require("path");
 const fs = require("fs");
+const http = require("http");
+const socket_io_1 = require("socket.io");
 const sendMessage_1 = require("./backend/sendMessage");
 const csvUtils_1 = require("./backend/csvUtils");
 const scheduler_1 = require("./backend/scheduler");
@@ -255,8 +257,31 @@ app.get('/current-messages', (req, res) => __awaiter(void 0, void 0, void 0, fun
         res.status(500).json({ messages: [], error: errorMsg });
     }
 }));
-// Start server
-app.listen(PORT, () => {
+// --- Log buffer and emit logic ---
+const server = http.createServer(app);
+const io = new socket_io_1.Server(server, { cors: { origin: "*" } });
+const logBuffer = [];
+function emitLog(msg) {
+    logBuffer.push(msg);
+    if (logBuffer.length > 200)
+        logBuffer.shift();
+    io.emit('backend-log', msg);
+}
+// Patch console.log/warn/error/info to also emit to frontend
+['log', 'warn', 'error', 'info'].forEach(type => {
+    const orig = console[type];
+    console[type] = function (...args) {
+        const msg = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
+        emitLog(`[${type.toUpperCase()}] ${msg}`);
+        orig.apply(console, args);
+    };
+});
+// Serve logs to new clients
+io.on('connection', (socket) => {
+    logBuffer.forEach(msg => socket.emit('backend-log', msg));
+});
+// Start server (use server.listen instead of app.listen)
+server.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
     console.log(`Serving static files from: ${uiPath}`);
     console.log(`Looking for index.html at: ${indexPath}`);

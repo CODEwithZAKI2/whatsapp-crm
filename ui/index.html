@@ -136,6 +136,12 @@
             <tbody></tbody>
         </table>
     </div>
+
+    <!-- Console log area -->
+    <div id="webConsole" style="background:#18181b;color:#d1d5db;font-family:monospace;font-size:14px;padding:10px 15px;max-width:800px;margin:20px auto 0;border-radius:6px;min-height:80px;box-shadow:0 2px 8px #0001;overflow-x:auto;">
+        <div style="color:#a3e635;">[Web Console Initialized]</div>
+    </div>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
         // --- Tab logic ---
         document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -535,6 +541,51 @@
         document.getElementById('refreshSentLogBtn').addEventListener('click', renderSentLogTable);
         document.getElementById('sentLogFilter').addEventListener('change', renderSentLogTable);
         document.getElementById('sentLogSearch').addEventListener('input', renderSentLogTable);
+
+        // --- Web Console Patch ---
+        (function() {
+            const webConsole = document.getElementById('webConsole');
+            if (!webConsole) return;
+            function appendToWebConsole(type, ...args) {
+                const msg = args.map(a => {
+                    if (typeof a === 'object') {
+                        try { return JSON.stringify(a); } catch { return '[object]'; }
+                    }
+                    return String(a);
+                }).join(' ');
+                const div = document.createElement('div');
+                div.textContent = msg;
+                if (type === 'error') div.style.color = '#f87171';
+                else if (type === 'warn') div.style.color = '#facc15';
+                else if (type === 'info') div.style.color = '#38bdf8';
+                else div.style.color = '#d1d5db';
+                webConsole.appendChild(div);
+                // Limit to last 200 lines for performance
+                while (webConsole.children.length > 200) {
+                    webConsole.removeChild(webConsole.firstChild);
+                }
+                webConsole.scrollTop = webConsole.scrollHeight;
+            }
+            // Patch only if not already patched
+            if (!window.__webConsolePatched) {
+                ['log', 'warn', 'error', 'info'].forEach(type => {
+                    const orig = console[type];
+                    console[type] = function(...args) {
+                        appendToWebConsole(type, ...args);
+                        orig.apply(console, args);
+                    };
+                });
+                window.__webConsolePatched = true;
+            }
+
+            // --- Socket.IO for backend logs ---
+            if (window.io) {
+                const socket = io();
+                socket.on('backend-log', function(msg) {
+                    appendToWebConsole('info', msg);
+                });
+            }
+        })();
 
         // --- Initial load ---
         refreshClientSelect();

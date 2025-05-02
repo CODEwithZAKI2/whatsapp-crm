@@ -60,6 +60,8 @@ var express = require("express");
 var bodyParser = require("body-parser");
 var path = require("path");
 var fs = require("fs");
+var http = require("http");
+var socket_io_1 = require("socket.io");
 var sendMessage_1 = require("./backend/sendMessage");
 var csvUtils_1 = require("./backend/csvUtils");
 var scheduler_1 = require("./backend/scheduler");
@@ -363,8 +365,35 @@ app.get('/current-messages', function (req, res) { return __awaiter(void 0, void
         }
     });
 }); });
-// Start server
-app.listen(PORT, function () {
+// --- Log buffer and emit logic ---
+var server = http.createServer(app);
+var io = new socket_io_1.Server(server, { cors: { origin: "*" } });
+var logBuffer = [];
+function emitLog(msg) {
+    logBuffer.push(msg);
+    if (logBuffer.length > 200)
+        logBuffer.shift();
+    io.emit('backend-log', msg);
+}
+// Patch console.log/warn/error/info to also emit to frontend
+['log', 'warn', 'error', 'info'].forEach(function (type) {
+    var orig = console[type];
+    console[type] = function () {
+        var args = [];
+        for (var _i = 0; _i < arguments.length; _i++) {
+            args[_i] = arguments[_i];
+        }
+        var msg = args.map(function (a) { return (typeof a === 'object' ? JSON.stringify(a) : String(a)); }).join(' ');
+        emitLog("[".concat(type.toUpperCase(), "] ").concat(msg));
+        orig.apply(console, args);
+    };
+});
+// Serve logs to new clients
+io.on('connection', function (socket) {
+    logBuffer.forEach(function (msg) { return socket.emit('backend-log', msg); });
+});
+// Start server (use server.listen instead of app.listen)
+server.listen(PORT, function () {
     console.log("Server is running on http://localhost:".concat(PORT));
     console.log("Serving static files from: ".concat(uiPath));
     console.log("Looking for index.html at: ".concat(indexPath));

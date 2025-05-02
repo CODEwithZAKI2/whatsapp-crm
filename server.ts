@@ -2,6 +2,8 @@ import express = require('express');
 import bodyParser = require('body-parser');
 import path = require('path');
 import fs = require('fs');
+import http = require('http');
+import { Server as SocketIOServer, Socket } from 'socket.io';
 import { sendMessageToClient, getWhatsAppClient } from './backend/sendMessage';
 import { loadClientsFromCSV, loadTemplatesFromCSV } from './backend/csvUtils';
 import { SafeScheduler } from './backend/scheduler';
@@ -260,8 +262,34 @@ app.get('/current-messages', async (req: express.Request, res: express.Response)
     }
 });
 
-// Start server
-app.listen(PORT, () => {
+// --- Log buffer and emit logic ---
+const server = http.createServer(app);
+const io = new SocketIOServer(server, { cors: { origin: "*" } });
+
+const logBuffer: string[] = [];
+function emitLog(msg: string) {
+    logBuffer.push(msg);
+    if (logBuffer.length > 200) logBuffer.shift();
+    io.emit('backend-log', msg);
+}
+
+// Patch console.log/warn/error/info to also emit to frontend
+(['log', 'warn', 'error', 'info'] as const).forEach(type => {
+    const orig = (console as any)[type];
+    (console as any)[type] = function(...args: any[]) {
+        const msg = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
+        emitLog(`[${type.toUpperCase()}] ${msg}`);
+        orig.apply(console, args);
+    };
+});
+
+// Serve logs to new clients
+io.on('connection', (socket: Socket) => {
+    logBuffer.forEach(msg => socket.emit('backend-log', msg));
+});
+
+// Start server (use server.listen instead of app.listen)
+server.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
     console.log(`Serving static files from: ${uiPath}`);
     console.log(`Looking for index.html at: ${indexPath}`);
