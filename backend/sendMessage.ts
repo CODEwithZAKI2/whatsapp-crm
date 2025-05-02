@@ -21,11 +21,17 @@ function initWhatsAppClient() {
             fs.mkdirSync(SESSION_FOLDER, { recursive: true });
         }
         console.log('[initWhatsAppClient] Creating WhatsApp client...');
-        whatsappClient = new Client({ authStrategy: new LocalAuth({ dataPath: SESSION_FOLDER }) });
+        whatsappClient = new Client({
+            authStrategy: new LocalAuth({ dataPath: SESSION_FOLDER }),
+            puppeteer: { headless: true, args: ['--no-sandbox'] }
+        });
         whatsappClient.on('qr', (qr) => {
-            if (!isReady) { // Only show QR if not ready
+            // Only show QR if not authenticated
+            if (!isReady && !fs.existsSync(path.join(SESSION_FOLDER, 'Default'))) {
                 console.log('[initWhatsAppClient] QR code event fired. Scan this QR code with your WhatsApp:');
                 qrcode.generate(qr, { small: true });
+            } else {
+                console.log('[initWhatsAppClient] QR code event ignored (session should exist).');
             }
         });
         whatsappClient.on('ready', () => {
