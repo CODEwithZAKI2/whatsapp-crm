@@ -7,6 +7,7 @@ import { Server as SocketIOServer, Socket } from 'socket.io';
 import { sendMessageToClient, getWhatsAppClient } from './backend/sendMessage';
 import { loadClientsFromCSV, loadTemplatesFromCSV } from './backend/csvUtils';
 import { SafeScheduler } from './backend/scheduler';
+import { pool } from './backend/db';
 
 const app = express();
 const PORT = 3000;
@@ -29,12 +30,13 @@ if (!fs.existsSync(indexPath)) {
 app.use(express.static(uiPath));
 
 // Serve index.html for the root route
-app.get('/', (req: express.Request, res: express.Response) => {
+app.get('/', (req, res): Promise<any> => {
     if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);
     } else {
         res.status(404).send('index.html not found on server');
     }
+    return Promise.resolve();
 });
 
 // --- CLIENTS CRUD ---
@@ -43,44 +45,78 @@ function saveClients(clients: any[]) {
         `${c.id},${c.name},${c.phone},${c.optIn}`)].join('\n');
     fs.writeFileSync(CLIENTS_CSV, csv, 'utf8');
 }
-app.get('/clients', (req, res) => {
-    // Always log when this endpoint is hit
-    console.log('GET /clients called');
+
+// Only update the GET /clients endpoint to use MySQL
+app.get('/clients', async (req, res): Promise<any> => {
     try {
-        // Log the resolved path and file existence
-        console.log('Fetching clients from:', CLIENTS_CSV, 'Exists:', fs.existsSync(CLIENTS_CSV));
-        if (!fs.existsSync(CLIENTS_CSV)) {
-            // If the file does not exist, create it with headers
-            fs.writeFileSync(CLIENTS_CSV, 'id,name,phone,optIn\n', 'utf8');
-            console.log('Created missing clients.csv at:', CLIENTS_CSV);
-        }
-        const clients = loadClientsFromCSV(CLIENTS_CSV);
+        const [rows] = await pool.query('SELECT id, name, contact_numbers, optIn FROM persons');
+        const clients = (rows as any[]).map(row => {
+            let phone = '';
+            try {
+                const numbers = JSON.parse(row.contact_numbers);
+                if (Array.isArray(numbers) && numbers.length > 0 && numbers[0].value) {
+                    phone = numbers[0].value;
+                }
+            } catch {
+                phone = '';
+            }
+            return {
+                id: row.id.toString(),
+                name: row.name,
+                phone,
+                optIn: !!row.optIn // Use the value from the database, ensure boolean
+            };
+        });
         res.json({ clients });
     } catch (err) {
-        console.error('Error reading clients:', err);
+        console.error('Error fetching clients from MySQL:', err);
         res.json({ clients: [] });
     }
 });
-app.post('/clients', (req, res) => {
-    let clients = loadClientsFromCSV(CLIENTS_CSV);
+
+app.post('/clients', async (req, res): Promise<any> => {
     const { name, phone, optIn } = req.body;
-    const id = (clients.length ? (parseInt(clients[clients.length - 1].id) + 1) : 1).toString();
-    clients.push({ id, name, phone, optIn });
-    saveClients(clients);
-    res.json({ success: true });
+    try {
+        // Insert new client into the database
+        const contact_numbers = JSON.stringify([{ value: phone, label: 'work' }]);
+        const [result]: any = await pool.query(
+            'INSERT INTO persons (name, contact_numbers, optIn) VALUES (?, ?, ?)',
+            [name, contact_numbers, optIn ? 1 : 0]
+        );
+        res.json({ success: true, id: result.insertId });
+    } catch (err) {
+        console.error('Error inserting client:', err);
+        res.json({ success: false, message: 'Failed to add client' });
+    }
 });
-app.put('/clients/:id', (req, res) => {
-    let clients = loadClientsFromCSV(CLIENTS_CSV);
+
+app.put('/clients/:id', async (req, res): Promise<any> => {
     const { name, phone, optIn } = req.body;
-    clients = clients.map(c => c.id === req.params.id ? { ...c, name, phone, optIn } : c);
-    saveClients(clients);
-    res.json({ success: true });
+    const id = req.params.id;
+    try {
+        // Update client in the database
+        const contact_numbers = JSON.stringify([{ value: phone, label: 'work' }]);
+        await pool.query(
+            'UPDATE persons SET name = ?, contact_numbers = ?, optIn = ? WHERE id = ?',
+            [name, contact_numbers, optIn ? 1 : 0, id]
+        );
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Error updating client:', err);
+        res.json({ success: false, message: 'Failed to update client' });
+    }
 });
-app.delete('/clients/:id', (req, res) => {
-    let clients = loadClientsFromCSV(CLIENTS_CSV);
-    clients = clients.filter(c => c.id !== req.params.id);
-    saveClients(clients);
-    res.json({ success: true });
+
+app.delete('/clients/:id', async (req, res): Promise<any> => {
+    const id = req.params.id;
+    try {
+        // Delete client from the database
+        await pool.query('DELETE FROM persons WHERE id = ?', [id]);
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Error deleting client:', err);
+        res.json({ success: false, message: 'Failed to delete client' });
+    }
 });
 
 // --- TEMPLATES CRUD ---
@@ -89,11 +125,12 @@ function saveTemplates(templates: any[]) {
         `${t.id},"${(t.text || '').replace(/"/g, '""')}"`)].join('\n');
     fs.writeFileSync(TEMPLATES_CSV, csv, 'utf8');
 }
-app.get('/templates', (req, res) => {
+app.get('/templates', (req, res): Promise<any> => {
     const templates = loadTemplatesFromCSV(TEMPLATES_CSV);
     res.json({ templates });
+    return Promise.resolve();
 });
-app.post('/templates', (req, res) => {
+app.post('/templates', (req, res): Promise<any> => {
     let templates = loadTemplatesFromCSV(TEMPLATES_CSV);
     const { text } = req.body;
     // Generate unique template id like t8, t9, etc.
@@ -110,26 +147,36 @@ app.post('/templates', (req, res) => {
     templates.push({ id, text });
     saveTemplates(templates);
     res.json({ success: true });
+    return Promise.resolve();
 });
-app.put('/templates/:id', (req, res) => {
+app.put('/templates/:id', (req, res): Promise<any> => {
     let templates = loadTemplatesFromCSV(TEMPLATES_CSV);
     const { text } = req.body;
     templates = templates.map(t => t.id === req.params.id ? { ...t, text } : t);
     saveTemplates(templates);
     res.json({ success: true });
+    return Promise.resolve();
 });
-app.delete('/templates/:id', (req, res) => {
+app.delete('/templates/:id', (req, res): Promise<any> => {
     let templates = loadTemplatesFromCSV(TEMPLATES_CSV);
     templates = templates.filter(t => t.id !== req.params.id);
     saveTemplates(templates);
     res.json({ success: true });
+    return Promise.resolve();
 });
 
 // --- SEND MESSAGE ---
-app.post('/send-message', async (req: express.Request, res: express.Response) => {
+app.post('/send-message', async (req, res): Promise<any> => {
     const { clientId, templateId } = req.body;
     try {
-        const result = await sendMessageToClient(clientId, templateId);
+        // Fetch client from database
+        const [rows] = await pool.query('SELECT id, name, contact_numbers, optIn FROM persons WHERE id = ?', [clientId]);
+        if (!Array.isArray(rows) || rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Client not found' });
+        }
+        const client = rows[0];
+        // Call sendMessageToClient with only two arguments as expected
+        const result = await sendMessageToClient(client.id.toString(), templateId);
         res.json({ success: true, message: 'Message sent successfully!', result });
     } catch (error) {
         let errorMsg = 'Unknown error';
@@ -138,10 +185,11 @@ app.post('/send-message', async (req: express.Request, res: express.Response) =>
         }
         res.status(500).json({ success: false, message: 'Failed to send message', error: errorMsg });
     }
+    return Promise.resolve();
 });
 
 // --- SENT LOG ENDPOINT ---
-app.get('/sent-log', (req, res) => {
+app.get('/sent-log', (req, res): Promise<any> => {
     const sentLogPath = path.resolve(__dirname, 'data', 'sentLog.json');
     try {
         if (!fs.existsSync(sentLogPath)) {
@@ -153,59 +201,55 @@ app.get('/sent-log', (req, res) => {
         console.error('Error reading sentLog.json:', err);
         res.json({ sentLog: [] });
     }
+    return Promise.resolve();
 });
 
 // --- SCHEDULER ---
 let scheduler: any = null;
 let schedulerStartTimeout: NodeJS.Timeout | null = null;
 
-app.post(
-    '/start-scheduler',
-    async (req: express.Request, res: express.Response): Promise<void> => {
-        if (scheduler && scheduler.state && !scheduler.state.paused) {
-            res.json({ success: false, message: 'Scheduler already running.' });
+app.post('/start-scheduler', async (req, res): Promise<any> => {
+    if (scheduler && scheduler.state && !scheduler.state.paused) {
+        res.json({ success: false, message: 'Scheduler already running.' });
+        return;
+    }
+    const clients = loadClientsFromCSV(CLIENTS_CSV);
+    const templates = loadTemplatesFromCSV(TEMPLATES_CSV);
+    scheduler = new SafeScheduler(clients, templates, true);
+    scheduler.sendFunction = async (clientObj: any, template: any, msg: any) => {
+        try {
+            await sendMessageToClient(clientObj.id, template.id);
+            console.log(`Scheduler: Message sent to client ${clientObj.id} using template ${template.id}`);
+        } catch (err) {
+            console.error(`Scheduler: Failed to send message to client ${clientObj.id}:`, err);
+            throw err;
+        }
+    };
+
+    if (schedulerStartTimeout) {
+        clearTimeout(schedulerStartTimeout);
+        schedulerStartTimeout = null;
+    }
+    const { startTime } = req.body;
+    if (startTime) {
+        const startTimestamp = new Date(startTime).getTime();
+        const now = Date.now();
+        if (startTimestamp > now) {
+            const delay = startTimestamp - now;
+            console.log(`[Scheduler] Will start at ${startTime} (in ${Math.round(delay / 1000)} seconds)`);
+            schedulerStartTimeout = setTimeout(() => {
+                scheduler.start();
+            }, delay);
+            res.json({ success: true, message: `Scheduler will start at ${startTime}` });
             return;
         }
-        const clients = loadClientsFromCSV(CLIENTS_CSV);
-        const templates = loadTemplatesFromCSV(TEMPLATES_CSV);
-        scheduler = new SafeScheduler(clients, templates, true);
-        // You must provide a sendFunction that sends WhatsApp messages
-        scheduler.sendFunction = async (clientObj: any, template: any, msg: any) => {
-            // Use your WhatsApp send logic here:
-            try {
-                await sendMessageToClient(clientObj.id, template.id);
-                console.log(`Scheduler: Message sent to client ${clientObj.id} using template ${template.id}`);
-            } catch (err) {
-                console.error(`Scheduler: Failed to send message to client ${clientObj.id}:`, err);
-                throw err;
-            }
-        };
-
-        // Handle scheduled start time
-        if (schedulerStartTimeout) {
-            clearTimeout(schedulerStartTimeout);
-            schedulerStartTimeout = null;
-        }
-        const { startTime } = req.body;
-        if (startTime) {
-            const startTimestamp = new Date(startTime).getTime();
-            const now = Date.now();
-            if (startTimestamp > now) {
-                const delay = startTimestamp - now;
-                console.log(`[Scheduler] Will start at ${startTime} (in ${Math.round(delay / 1000)} seconds)`);
-                schedulerStartTimeout = setTimeout(() => {
-                    scheduler.start();
-                }, delay);
-                res.json({ success: true, message: `Scheduler will start at ${startTime}` });
-                return;
-            }
-        }
-        scheduler.start();
-        res.json({ success: true, message: 'Scheduler started!' });
     }
-);
+    scheduler.start();
+    res.json({ success: true, message: 'Scheduler started!' });
+    return Promise.resolve();
+});
 
-app.post('/stop-scheduler', (req: express.Request, res: express.Response): void => {
+app.post('/stop-scheduler', async (req, res): Promise<any> => {
     if (scheduler) {
         scheduler.pause();
         if (schedulerStartTimeout) {
@@ -216,10 +260,10 @@ app.post('/stop-scheduler', (req: express.Request, res: express.Response): void 
     } else {
         res.json({ success: false, message: 'Scheduler is not running.' });
     }
+    return Promise.resolve();
 });
 
-// Scheduler status endpoint for UI
-app.get('/scheduler-status', (req: express.Request, res: express.Response): void => {
+app.get('/scheduler-status', async (req, res): Promise<any> => {
     if (!scheduler) {
         res.json({ running: false });
         return;
@@ -230,10 +274,11 @@ app.get('/scheduler-status', (req: express.Request, res: express.Response): void
         sentCount: stats.sentCount,
         nextMessageInfo: stats.nextMessageInfo
     });
+    return Promise.resolve();
 });
 
 // --- MESSAGES FROM OPEN CHATS ---
-app.get('/current-messages', async (req: express.Request, res: express.Response) => {
+app.get('/current-messages', async (req, res): Promise<any> => {
     try {
         const client = await getWhatsAppClient();
         const chats = await client.getChats();
@@ -260,6 +305,7 @@ app.get('/current-messages', async (req: express.Request, res: express.Response)
         if (err instanceof Error) errorMsg = err.message;
         res.status(500).json({ messages: [], error: errorMsg });
     }
+    return Promise.resolve();
 });
 
 // --- Log buffer and emit logic ---

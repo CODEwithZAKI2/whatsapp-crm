@@ -1,4 +1,15 @@
 "use strict";
+var __assign = (this && this.__assign) || function () {
+    __assign = Object.assign || function(t) {
+        for (var s, i = 1, n = arguments.length; i < n; i++) {
+            s = arguments[i];
+            for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p))
+                t[p] = s[p];
+        }
+        return t;
+    };
+    return __assign.apply(this, arguments);
+};
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -41,6 +52,7 @@ exports.getWhatsAppClient = getWhatsAppClient;
 var whatsapp_web_js_1 = require("whatsapp-web.js");
 var csvUtils_1 = require("./csvUtils");
 var templateEngine_1 = require("./templateEngine");
+var db_1 = require("./db");
 var fs = require("fs");
 var path = require("path");
 var qrcode = require("qrcode-terminal");
@@ -116,57 +128,68 @@ function getWhatsAppClient() {
 }
 function sendMessageToClient(clientId, templateId) {
     return __awaiter(this, void 0, void 0, function () {
-        var clients, templates, sentLog, clientObj, template, shuffled, message, chatId, isRegistered, err_1;
+        var clientRows, clientObj, phone, numbers, templates, sentLog, template, shuffled, message, chatId, isRegistered, err_1;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
                     console.log("[sendMessageToClient] Called with clientId=".concat(clientId, ", templateId=").concat(templateId));
-                    clients = (0, csvUtils_1.loadClientsFromCSV)(CLIENTS_CSV);
-                    templates = (0, csvUtils_1.loadTemplatesFromCSV)(TEMPLATES_CSV);
-                    sentLog = loadSentLog();
-                    clientObj = clients.find(function (c) { return c.id === clientId; });
-                    if (!clientObj) {
+                    return [4 /*yield*/, db_1.pool.query('SELECT id, name, contact_numbers, optIn FROM persons WHERE id = ?', [clientId])];
+                case 1:
+                    clientRows = (_a.sent())[0];
+                    if (!Array.isArray(clientRows) || clientRows.length === 0) {
                         console.error('Client not found:', clientId);
                         throw new Error('Client not found');
                     }
-                    if (clientObj.optIn === false) {
+                    clientObj = clientRows[0];
+                    phone = '';
+                    try {
+                        numbers = JSON.parse(clientObj.contact_numbers);
+                        if (Array.isArray(numbers) && numbers.length > 0 && numbers[0].value) {
+                            phone = numbers[0].value;
+                        }
+                    }
+                    catch (_b) {
+                        phone = '';
+                    }
+                    if (clientObj.optIn === false || clientObj.optIn === 0) {
                         console.error('Client opted out:', clientId);
                         throw new Error('Client opted out');
                     }
-                    if (!/^\d{8,15}$/.test(clientObj.phone)) {
-                        console.error('Invalid phone number:', clientObj.phone);
+                    if (!/^\d{8,15}$/.test(phone)) {
+                        console.error('Invalid phone number:', phone);
                         throw new Error('Invalid phone number');
                     }
+                    templates = (0, csvUtils_1.loadTemplatesFromCSV)(TEMPLATES_CSV);
+                    sentLog = loadSentLog();
                     template = templates.find(function (t) { return t.id === templateId; });
                     if (!template) {
                         shuffled = (0, templateEngine_1.getShuffledTemplates)(templates);
                         template = shuffled[0];
                         console.warn('Template not found, using random template:', template.id);
                     }
-                    message = (0, templateEngine_1.personalizeTemplate)(template, clientObj, true);
-                    chatId = clientObj.phone + '@c.us';
-                    // Remove unnecessary waiting/logging since client is already ready
+                    message = (0, templateEngine_1.personalizeTemplate)(template, __assign(__assign({}, clientObj), { phone: phone }), true);
+                    chatId = phone + '@c.us';
                     if (!isReady) {
                         console.error('[sendMessageToClient] WhatsApp client not ready. Please wait for initialization.');
                         throw new Error('WhatsApp client not ready. Please wait for initialization.');
                     }
-                    _a.label = 1;
-                case 1:
-                    _a.trys.push([1, 4, , 5]);
+                    _a.label = 2;
+                case 2:
+                    _a.trys.push([2, 5, , 6]);
                     console.log("[sendMessageToClient] Checking registration for ".concat(chatId, "..."));
                     if (!whatsappClient) {
                         throw new Error('WhatsApp client is not initialized.');
                     }
                     return [4 /*yield*/, whatsappClient.isRegisteredUser(chatId)];
-                case 2:
+                case 3:
                     isRegistered = _a.sent();
                     if (!isRegistered) {
-                        console.error('Number is not registered on WhatsApp:', clientObj.phone);
+                        console.error('Number is not registered on WhatsApp:', phone);
                         throw new Error('Number is not registered on WhatsApp');
                     }
                     console.log("[sendMessageToClient] Sending message to ".concat(chatId, ": ").concat(message));
                     return [4 /*yield*/, whatsappClient.sendMessage(chatId, message)];
-                case 3:
+                case 4:
                     _a.sent();
                     sentLog.push({
                         clientId: clientObj.id,
@@ -175,13 +198,13 @@ function sendMessageToClient(clientId, templateId) {
                         status: 'sent'
                     });
                     saveSentLog(sentLog);
-                    console.log("[sendMessageToClient] Message sent to ".concat(clientObj.name, " (").concat(clientObj.phone, ")"));
-                    return [2 /*return*/, { status: 'sent', client: clientObj.name, phone: clientObj.phone, template: template.text }];
-                case 4:
+                    console.log("[sendMessageToClient] Message sent to ".concat(clientObj.name, " (").concat(phone, ")"));
+                    return [2 /*return*/, { status: 'sent', client: clientObj.name, phone: phone, template: template.text }];
+                case 5:
                     err_1 = _a.sent();
                     console.error('[sendMessageToClient] Error sending message:', err_1);
                     throw err_1;
-                case 5: return [2 /*return*/];
+                case 6: return [2 /*return*/];
             }
         });
     });

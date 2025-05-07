@@ -14,6 +14,7 @@ exports.getWhatsAppClient = getWhatsAppClient;
 const whatsapp_web_js_1 = require("whatsapp-web.js");
 const csvUtils_1 = require("./csvUtils");
 const templateEngine_1 = require("./templateEngine");
+const db_1 = require("./db");
 const fs = require("fs");
 const path = require("path");
 const qrcode = require("qrcode-terminal");
@@ -88,31 +89,43 @@ function getWhatsAppClient() {
 function sendMessageToClient(clientId, templateId) {
     return __awaiter(this, void 0, void 0, function* () {
         console.log(`[sendMessageToClient] Called with clientId=${clientId}, templateId=${templateId}`);
-        const clients = (0, csvUtils_1.loadClientsFromCSV)(CLIENTS_CSV);
-        const templates = (0, csvUtils_1.loadTemplatesFromCSV)(TEMPLATES_CSV);
-        const sentLog = loadSentLog();
-        const clientObj = clients.find(c => c.id === clientId);
-        if (!clientObj) {
+        // Fetch client from DB
+        const [clientRows] = yield db_1.pool.query('SELECT id, name, contact_numbers, optIn FROM persons WHERE id = ?', [clientId]);
+        if (!Array.isArray(clientRows) || clientRows.length === 0) {
             console.error('Client not found:', clientId);
             throw new Error('Client not found');
         }
-        if (clientObj.optIn === false) {
+        const clientObj = clientRows[0];
+        let phone = '';
+        try {
+            const numbers = JSON.parse(clientObj.contact_numbers);
+            if (Array.isArray(numbers) && numbers.length > 0 && numbers[0].value) {
+                phone = numbers[0].value;
+            }
+        }
+        catch (_a) {
+            phone = '';
+        }
+        if (clientObj.optIn === false || clientObj.optIn === 0) {
             console.error('Client opted out:', clientId);
             throw new Error('Client opted out');
         }
-        if (!/^\d{8,15}$/.test(clientObj.phone)) {
-            console.error('Invalid phone number:', clientObj.phone);
+        if (!/^\d{8,15}$/.test(phone)) {
+            console.error('Invalid phone number:', phone);
             throw new Error('Invalid phone number');
         }
+        // Load templates from CSV (or you can migrate this to DB as well)
+        const templates = (0, csvUtils_1.loadTemplatesFromCSV)(TEMPLATES_CSV);
+        const sentLog = loadSentLog();
         let template = templates.find(t => t.id === templateId);
         if (!template) {
             const shuffled = (0, templateEngine_1.getShuffledTemplates)(templates);
             template = shuffled[0];
             console.warn('Template not found, using random template:', template.id);
         }
-        const message = (0, templateEngine_1.personalizeTemplate)(template, clientObj, true);
-        const chatId = clientObj.phone + '@c.us';
-        // Remove unnecessary waiting/logging since client is already ready
+        // Personalize message
+        const message = (0, templateEngine_1.personalizeTemplate)(template, Object.assign(Object.assign({}, clientObj), { phone }), true);
+        const chatId = phone + '@c.us';
         if (!isReady) {
             console.error('[sendMessageToClient] WhatsApp client not ready. Please wait for initialization.');
             throw new Error('WhatsApp client not ready. Please wait for initialization.');
@@ -124,7 +137,7 @@ function sendMessageToClient(clientId, templateId) {
             }
             const isRegistered = yield whatsappClient.isRegisteredUser(chatId);
             if (!isRegistered) {
-                console.error('Number is not registered on WhatsApp:', clientObj.phone);
+                console.error('Number is not registered on WhatsApp:', phone);
                 throw new Error('Number is not registered on WhatsApp');
             }
             console.log(`[sendMessageToClient] Sending message to ${chatId}: ${message}`);
@@ -136,8 +149,8 @@ function sendMessageToClient(clientId, templateId) {
                 status: 'sent'
             });
             saveSentLog(sentLog);
-            console.log(`[sendMessageToClient] Message sent to ${clientObj.name} (${clientObj.phone})`);
-            return { status: 'sent', client: clientObj.name, phone: clientObj.phone, template: template.text };
+            console.log(`[sendMessageToClient] Message sent to ${clientObj.name} (${phone})`);
+            return { status: 'sent', client: clientObj.name, phone, template: template.text };
         }
         catch (err) {
             console.error('[sendMessageToClient] Error sending message:', err);

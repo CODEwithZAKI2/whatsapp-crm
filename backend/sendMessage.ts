@@ -1,6 +1,7 @@
 import { Client, LocalAuth } from 'whatsapp-web.js';
 import { loadClientsFromCSV, loadTemplatesFromCSV } from './csvUtils';
 import { getShuffledTemplates, personalizeTemplate } from './templateEngine';
+import { pool } from './db';
 import fs = require('fs');
 import path = require('path');
 import qrcode = require('qrcode-terminal');
@@ -77,23 +78,35 @@ async function getWhatsAppClient(): Promise<Client> {
 
 export async function sendMessageToClient(clientId: string, templateId: string) {
     console.log(`[sendMessageToClient] Called with clientId=${clientId}, templateId=${templateId}`);
-    const clients = loadClientsFromCSV(CLIENTS_CSV);
-    const templates = loadTemplatesFromCSV(TEMPLATES_CSV);
-    const sentLog = loadSentLog();
 
-    const clientObj = clients.find(c => c.id === clientId);
-    if (!clientObj) {
+    // Fetch client from DB
+    const [clientRows]: any = await pool.query('SELECT id, name, contact_numbers, optIn FROM persons WHERE id = ?', [clientId]);
+    if (!Array.isArray(clientRows) || clientRows.length === 0) {
         console.error('Client not found:', clientId);
         throw new Error('Client not found');
     }
-    if (clientObj.optIn === false) {
+    const clientObj = clientRows[0];
+    let phone = '';
+    try {
+        const numbers = JSON.parse(clientObj.contact_numbers);
+        if (Array.isArray(numbers) && numbers.length > 0 && numbers[0].value) {
+            phone = numbers[0].value;
+        }
+    } catch {
+        phone = '';
+    }
+    if (clientObj.optIn === false || clientObj.optIn === 0) {
         console.error('Client opted out:', clientId);
         throw new Error('Client opted out');
     }
-    if (!/^\d{8,15}$/.test(clientObj.phone)) {
-        console.error('Invalid phone number:', clientObj.phone);
+    if (!/^\d{8,15}$/.test(phone)) {
+        console.error('Invalid phone number:', phone);
         throw new Error('Invalid phone number');
     }
+
+    // Load templates from CSV (or you can migrate this to DB as well)
+    const templates = loadTemplatesFromCSV(TEMPLATES_CSV);
+    const sentLog = loadSentLog();
 
     let template = templates.find(t => t.id === templateId);
     if (!template) {
@@ -102,10 +115,10 @@ export async function sendMessageToClient(clientId: string, templateId: string) 
         console.warn('Template not found, using random template:', template.id);
     }
 
-    const message = personalizeTemplate(template, clientObj, true);
-    const chatId = clientObj.phone + '@c.us';
+    // Personalize message
+    const message = personalizeTemplate(template, { ...clientObj, phone }, true);
+    const chatId = phone + '@c.us';
 
-    // Remove unnecessary waiting/logging since client is already ready
     if (!isReady) {
         console.error('[sendMessageToClient] WhatsApp client not ready. Please wait for initialization.');
         throw new Error('WhatsApp client not ready. Please wait for initialization.');
@@ -118,7 +131,7 @@ export async function sendMessageToClient(clientId: string, templateId: string) 
         }
         const isRegistered = await whatsappClient.isRegisteredUser(chatId);
         if (!isRegistered) {
-            console.error('Number is not registered on WhatsApp:', clientObj.phone);
+            console.error('Number is not registered on WhatsApp:', phone);
             throw new Error('Number is not registered on WhatsApp');
         }
 
@@ -133,8 +146,8 @@ export async function sendMessageToClient(clientId: string, templateId: string) 
         });
         saveSentLog(sentLog);
 
-        console.log(`[sendMessageToClient] Message sent to ${clientObj.name} (${clientObj.phone})`);
-        return { status: 'sent', client: clientObj.name, phone: clientObj.phone, template: template.text };
+        console.log(`[sendMessageToClient] Message sent to ${clientObj.name} (${phone})`);
+        return { status: 'sent', client: clientObj.name, phone, template: template.text };
     } catch (err) {
         console.error('[sendMessageToClient] Error sending message:', err);
         throw err;

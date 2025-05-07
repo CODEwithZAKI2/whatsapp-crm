@@ -65,6 +65,7 @@ var socket_io_1 = require("socket.io");
 var sendMessage_1 = require("./backend/sendMessage");
 var csvUtils_1 = require("./backend/csvUtils");
 var scheduler_1 = require("./backend/scheduler");
+var db_1 = require("./backend/db");
 var app = express();
 var PORT = 3000;
 var CLIENTS_CSV = path.resolve(__dirname, 'data', 'clients.csv');
@@ -88,6 +89,7 @@ app.get('/', function (req, res) {
     else {
         res.status(404).send('index.html not found on server');
     }
+    return Promise.resolve();
 });
 // --- CLIENTS CRUD ---
 function saveClients(clients) {
@@ -96,46 +98,119 @@ function saveClients(clients) {
     }), true).join('\n');
     fs.writeFileSync(CLIENTS_CSV, csv, 'utf8');
 }
-app.get('/clients', function (req, res) {
-    // Always log when this endpoint is hit
-    console.log('GET /clients called');
-    try {
-        // Log the resolved path and file existence
-        console.log('Fetching clients from:', CLIENTS_CSV, 'Exists:', fs.existsSync(CLIENTS_CSV));
-        if (!fs.existsSync(CLIENTS_CSV)) {
-            // If the file does not exist, create it with headers
-            fs.writeFileSync(CLIENTS_CSV, 'id,name,phone,optIn\n', 'utf8');
-            console.log('Created missing clients.csv at:', CLIENTS_CSV);
+// Only update the GET /clients endpoint to use MySQL
+app.get('/clients', function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
+    var rows, clients, err_1;
+    return __generator(this, function (_a) {
+        switch (_a.label) {
+            case 0:
+                _a.trys.push([0, 2, , 3]);
+                return [4 /*yield*/, db_1.pool.query('SELECT id, name, contact_numbers, optIn FROM persons')];
+            case 1:
+                rows = (_a.sent())[0];
+                clients = rows.map(function (row) {
+                    var phone = '';
+                    try {
+                        var numbers = JSON.parse(row.contact_numbers);
+                        if (Array.isArray(numbers) && numbers.length > 0 && numbers[0].value) {
+                            phone = numbers[0].value;
+                        }
+                    }
+                    catch (_a) {
+                        phone = '';
+                    }
+                    return {
+                        id: row.id.toString(),
+                        name: row.name,
+                        phone: phone,
+                        optIn: !!row.optIn // Use the value from the database, ensure boolean
+                    };
+                });
+                res.json({ clients: clients });
+                return [3 /*break*/, 3];
+            case 2:
+                err_1 = _a.sent();
+                console.error('Error fetching clients from MySQL:', err_1);
+                res.json({ clients: [] });
+                return [3 /*break*/, 3];
+            case 3: return [2 /*return*/];
         }
-        var clients = (0, csvUtils_1.loadClientsFromCSV)(CLIENTS_CSV);
-        res.json({ clients: clients });
-    }
-    catch (err) {
-        console.error('Error reading clients:', err);
-        res.json({ clients: [] });
-    }
-});
-app.post('/clients', function (req, res) {
-    var clients = (0, csvUtils_1.loadClientsFromCSV)(CLIENTS_CSV);
-    var _a = req.body, name = _a.name, phone = _a.phone, optIn = _a.optIn;
-    var id = (clients.length ? (parseInt(clients[clients.length - 1].id) + 1) : 1).toString();
-    clients.push({ id: id, name: name, phone: phone, optIn: optIn });
-    saveClients(clients);
-    res.json({ success: true });
-});
-app.put('/clients/:id', function (req, res) {
-    var clients = (0, csvUtils_1.loadClientsFromCSV)(CLIENTS_CSV);
-    var _a = req.body, name = _a.name, phone = _a.phone, optIn = _a.optIn;
-    clients = clients.map(function (c) { return c.id === req.params.id ? __assign(__assign({}, c), { name: name, phone: phone, optIn: optIn }) : c; });
-    saveClients(clients);
-    res.json({ success: true });
-});
-app.delete('/clients/:id', function (req, res) {
-    var clients = (0, csvUtils_1.loadClientsFromCSV)(CLIENTS_CSV);
-    clients = clients.filter(function (c) { return c.id !== req.params.id; });
-    saveClients(clients);
-    res.json({ success: true });
-});
+    });
+}); });
+app.post('/clients', function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
+    var _a, name, phone, optIn, contact_numbers, result, err_2;
+    return __generator(this, function (_b) {
+        switch (_b.label) {
+            case 0:
+                _a = req.body, name = _a.name, phone = _a.phone, optIn = _a.optIn;
+                _b.label = 1;
+            case 1:
+                _b.trys.push([1, 3, , 4]);
+                contact_numbers = JSON.stringify([{ value: phone, label: 'work' }]);
+                return [4 /*yield*/, db_1.pool.query('INSERT INTO persons (name, contact_numbers, optIn) VALUES (?, ?, ?)', [name, contact_numbers, optIn ? 1 : 0])];
+            case 2:
+                result = (_b.sent())[0];
+                res.json({ success: true, id: result.insertId });
+                return [3 /*break*/, 4];
+            case 3:
+                err_2 = _b.sent();
+                console.error('Error inserting client:', err_2);
+                res.json({ success: false, message: 'Failed to add client' });
+                return [3 /*break*/, 4];
+            case 4: return [2 /*return*/];
+        }
+    });
+}); });
+app.put('/clients/:id', function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
+    var _a, name, phone, optIn, id, contact_numbers, err_3;
+    return __generator(this, function (_b) {
+        switch (_b.label) {
+            case 0:
+                _a = req.body, name = _a.name, phone = _a.phone, optIn = _a.optIn;
+                id = req.params.id;
+                _b.label = 1;
+            case 1:
+                _b.trys.push([1, 3, , 4]);
+                contact_numbers = JSON.stringify([{ value: phone, label: 'work' }]);
+                return [4 /*yield*/, db_1.pool.query('UPDATE persons SET name = ?, contact_numbers = ?, optIn = ? WHERE id = ?', [name, contact_numbers, optIn ? 1 : 0, id])];
+            case 2:
+                _b.sent();
+                res.json({ success: true });
+                return [3 /*break*/, 4];
+            case 3:
+                err_3 = _b.sent();
+                console.error('Error updating client:', err_3);
+                res.json({ success: false, message: 'Failed to update client' });
+                return [3 /*break*/, 4];
+            case 4: return [2 /*return*/];
+        }
+    });
+}); });
+app.delete('/clients/:id', function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
+    var id, err_4;
+    return __generator(this, function (_a) {
+        switch (_a.label) {
+            case 0:
+                id = req.params.id;
+                _a.label = 1;
+            case 1:
+                _a.trys.push([1, 3, , 4]);
+                // Delete client from the database
+                return [4 /*yield*/, db_1.pool.query('DELETE FROM persons WHERE id = ?', [id])];
+            case 2:
+                // Delete client from the database
+                _a.sent();
+                res.json({ success: true });
+                return [3 /*break*/, 4];
+            case 3:
+                err_4 = _a.sent();
+                console.error('Error deleting client:', err_4);
+                res.json({ success: false, message: 'Failed to delete client' });
+                return [3 /*break*/, 4];
+            case 4: return [2 /*return*/];
+        }
+    });
+}); });
 // --- TEMPLATES CRUD ---
 function saveTemplates(templates) {
     var csv = __spreadArray(['id,text'], templates.map(function (t) {
@@ -146,6 +221,7 @@ function saveTemplates(templates) {
 app.get('/templates', function (req, res) {
     var templates = (0, csvUtils_1.loadTemplatesFromCSV)(TEMPLATES_CSV);
     res.json({ templates: templates });
+    return Promise.resolve();
 });
 app.post('/templates', function (req, res) {
     var templates = (0, csvUtils_1.loadTemplatesFromCSV)(TEMPLATES_CSV);
@@ -162,6 +238,7 @@ app.post('/templates', function (req, res) {
     templates.push({ id: id, text: text });
     saveTemplates(templates);
     res.json({ success: true });
+    return Promise.resolve();
 });
 app.put('/templates/:id', function (req, res) {
     var templates = (0, csvUtils_1.loadTemplatesFromCSV)(TEMPLATES_CSV);
@@ -169,37 +246,46 @@ app.put('/templates/:id', function (req, res) {
     templates = templates.map(function (t) { return t.id === req.params.id ? __assign(__assign({}, t), { text: text }) : t; });
     saveTemplates(templates);
     res.json({ success: true });
+    return Promise.resolve();
 });
 app.delete('/templates/:id', function (req, res) {
     var templates = (0, csvUtils_1.loadTemplatesFromCSV)(TEMPLATES_CSV);
     templates = templates.filter(function (t) { return t.id !== req.params.id; });
     saveTemplates(templates);
     res.json({ success: true });
+    return Promise.resolve();
 });
 // --- SEND MESSAGE ---
 app.post('/send-message', function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
-    var _a, clientId, templateId, result, error_1, errorMsg;
+    var _a, clientId, templateId, rows, client, result, error_1, errorMsg;
     return __generator(this, function (_b) {
         switch (_b.label) {
             case 0:
                 _a = req.body, clientId = _a.clientId, templateId = _a.templateId;
                 _b.label = 1;
             case 1:
-                _b.trys.push([1, 3, , 4]);
-                return [4 /*yield*/, (0, sendMessage_1.sendMessageToClient)(clientId, templateId)];
+                _b.trys.push([1, 4, , 5]);
+                return [4 /*yield*/, db_1.pool.query('SELECT id, name, contact_numbers, optIn FROM persons WHERE id = ?', [clientId])];
             case 2:
+                rows = (_b.sent())[0];
+                if (!Array.isArray(rows) || rows.length === 0) {
+                    return [2 /*return*/, res.status(404).json({ success: false, message: 'Client not found' })];
+                }
+                client = rows[0];
+                return [4 /*yield*/, (0, sendMessage_1.sendMessageToClient)(client.id.toString(), templateId)];
+            case 3:
                 result = _b.sent();
                 res.json({ success: true, message: 'Message sent successfully!', result: result });
-                return [3 /*break*/, 4];
-            case 3:
+                return [3 /*break*/, 5];
+            case 4:
                 error_1 = _b.sent();
                 errorMsg = 'Unknown error';
                 if (error_1 instanceof Error) {
                     errorMsg = error_1.message;
                 }
                 res.status(500).json({ success: false, message: 'Failed to send message', error: errorMsg });
-                return [3 /*break*/, 4];
-            case 4: return [2 /*return*/];
+                return [3 /*break*/, 5];
+            case 5: return [2 /*return*/, Promise.resolve()];
         }
     });
 }); });
@@ -217,6 +303,7 @@ app.get('/sent-log', function (req, res) {
         console.error('Error reading sentLog.json:', err);
         res.json({ sentLog: [] });
     }
+    return Promise.resolve();
 });
 // --- SCHEDULER ---
 var scheduler = null;
@@ -231,9 +318,8 @@ app.post('/start-scheduler', function (req, res) { return __awaiter(void 0, void
         clients = (0, csvUtils_1.loadClientsFromCSV)(CLIENTS_CSV);
         templates = (0, csvUtils_1.loadTemplatesFromCSV)(TEMPLATES_CSV);
         scheduler = new scheduler_1.SafeScheduler(clients, templates, true);
-        // You must provide a sendFunction that sends WhatsApp messages
         scheduler.sendFunction = function (clientObj, template, msg) { return __awaiter(void 0, void 0, void 0, function () {
-            var err_1;
+            var err_5;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -244,14 +330,13 @@ app.post('/start-scheduler', function (req, res) { return __awaiter(void 0, void
                         console.log("Scheduler: Message sent to client ".concat(clientObj.id, " using template ").concat(template.id));
                         return [3 /*break*/, 3];
                     case 2:
-                        err_1 = _a.sent();
-                        console.error("Scheduler: Failed to send message to client ".concat(clientObj.id, ":"), err_1);
-                        throw err_1;
+                        err_5 = _a.sent();
+                        console.error("Scheduler: Failed to send message to client ".concat(clientObj.id, ":"), err_5);
+                        throw err_5;
                     case 3: return [2 /*return*/];
                 }
             });
         }); };
-        // Handle scheduled start time
         if (schedulerStartTimeout) {
             clearTimeout(schedulerStartTimeout);
             schedulerStartTimeout = null;
@@ -272,38 +357,44 @@ app.post('/start-scheduler', function (req, res) { return __awaiter(void 0, void
         }
         scheduler.start();
         res.json({ success: true, message: 'Scheduler started!' });
-        return [2 /*return*/];
+        return [2 /*return*/, Promise.resolve()];
     });
 }); });
-app.post('/stop-scheduler', function (req, res) {
-    if (scheduler) {
-        scheduler.pause();
-        if (schedulerStartTimeout) {
-            clearTimeout(schedulerStartTimeout);
-            schedulerStartTimeout = null;
+app.post('/stop-scheduler', function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
+    return __generator(this, function (_a) {
+        if (scheduler) {
+            scheduler.pause();
+            if (schedulerStartTimeout) {
+                clearTimeout(schedulerStartTimeout);
+                schedulerStartTimeout = null;
+            }
+            res.json({ success: true, message: 'Scheduler stopped.' });
         }
-        res.json({ success: true, message: 'Scheduler stopped.' });
-    }
-    else {
-        res.json({ success: false, message: 'Scheduler is not running.' });
-    }
-});
-// Scheduler status endpoint for UI
-app.get('/scheduler-status', function (req, res) {
-    if (!scheduler) {
-        res.json({ running: false });
-        return;
-    }
-    var stats = scheduler.getStats();
-    res.json({
-        running: !scheduler.state.paused,
-        sentCount: stats.sentCount,
-        nextMessageInfo: stats.nextMessageInfo
+        else {
+            res.json({ success: false, message: 'Scheduler is not running.' });
+        }
+        return [2 /*return*/, Promise.resolve()];
     });
-});
+}); });
+app.get('/scheduler-status', function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
+    var stats;
+    return __generator(this, function (_a) {
+        if (!scheduler) {
+            res.json({ running: false });
+            return [2 /*return*/];
+        }
+        stats = scheduler.getStats();
+        res.json({
+            running: !scheduler.state.paused,
+            sentCount: stats.sentCount,
+            nextMessageInfo: stats.nextMessageInfo
+        });
+        return [2 /*return*/, Promise.resolve()];
+    });
+}); });
 // --- MESSAGES FROM OPEN CHATS ---
 app.get('/current-messages', function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
-    var client, chats, allMessages_1, _loop_1, _i, chats_1, chat, err_2, errorMsg;
+    var client, chats, allMessages_1, _loop_1, _i, chats_1, chat, err_6, errorMsg;
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0:
@@ -355,13 +446,13 @@ app.get('/current-messages', function (req, res) { return __awaiter(void 0, void
                 res.json({ messages: allMessages_1 });
                 return [3 /*break*/, 8];
             case 7:
-                err_2 = _a.sent();
+                err_6 = _a.sent();
                 errorMsg = 'Unknown error';
-                if (err_2 instanceof Error)
-                    errorMsg = err_2.message;
+                if (err_6 instanceof Error)
+                    errorMsg = err_6.message;
                 res.status(500).json({ messages: [], error: errorMsg });
                 return [3 /*break*/, 8];
-            case 8: return [2 /*return*/];
+            case 8: return [2 /*return*/, Promise.resolve()];
         }
     });
 }); });
