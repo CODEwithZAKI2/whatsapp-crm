@@ -289,6 +289,65 @@ app.post('/send-message', function (req, res) { return __awaiter(void 0, void 0,
         }
     });
 }); });
+app.post('/send-message-activity', function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
+    var _a, clientId, templateId, leadId, userId, userRows, rows, client, templates, template, message, now, formattedNow, activityResult, activityId, result, error_2, errorMsg;
+    return __generator(this, function (_b) {
+        switch (_b.label) {
+            case 0:
+                _a = req.body, clientId = _a.clientId, templateId = _a.templateId, leadId = _a.leadId, userId = _a.userId;
+                _b.label = 1;
+            case 1:
+                _b.trys.push([1, 7, , 8]);
+                return [4 /*yield*/, db_1.pool.query('SELECT id FROM users WHERE id = ?', [userId])];
+            case 2:
+                userRows = (_b.sent())[0];
+                if (!Array.isArray(userRows) || userRows.length === 0) {
+                    return [2 /*return*/, res.status(400).json({ success: false, message: "User ID ".concat(userId, " does not exist in users table.") })];
+                }
+                return [4 /*yield*/, db_1.pool.query('SELECT id, name, contact_numbers, optIn FROM persons WHERE id = ?', [clientId])];
+            case 3:
+                rows = (_b.sent())[0];
+                if (!Array.isArray(rows) || rows.length === 0) {
+                    return [2 /*return*/, res.status(404).json({ success: false, message: 'Client not found' })];
+                }
+                client = rows[0];
+                templates = require('./backend/csvUtils').loadTemplatesFromCSV(require('path').join(__dirname, 'data/templates.csv'));
+                template = templates.find(function (t) { return t.id === templateId; });
+                if (!template) {
+                    template = templates[0];
+                }
+                message = template.text;
+                if (client.name) {
+                    message = message.replace(/{{\s*name\s*}}/gi, client.name);
+                }
+                now = new Date();
+                formattedNow = now.toISOString().slice(0, 19).replace('T', ' ');
+                return [4 /*yield*/, db_1.pool.query('INSERT INTO activities (user_id, title, comment, created_at, updated_at) VALUES (?, ?, ?, ?, ?)', [userId, 'Whatsapp', message, formattedNow, formattedNow])];
+            case 4:
+                activityResult = (_b.sent())[0];
+                activityId = activityResult.insertId;
+                // Insert into lead_activities
+                return [4 /*yield*/, db_1.pool.query('INSERT INTO lead_activities (activity_id, lead_id) VALUES (?, ?)', [activityId, leadId])];
+            case 5:
+                // Insert into lead_activities
+                _b.sent();
+                return [4 /*yield*/, (0, sendMessage_1.sendMessageToClient)(client.id.toString(), templateId)];
+            case 6:
+                result = _b.sent();
+                res.json({ success: true, message: 'Message sent and activity stored!', activityId: activityId, result: result });
+                return [3 /*break*/, 8];
+            case 7:
+                error_2 = _b.sent();
+                errorMsg = 'Unknown error';
+                if (error_2 instanceof Error)
+                    errorMsg = error_2.message;
+                console.error('send-message-activity error:', error_2);
+                res.status(500).json({ success: false, message: 'Failed to send message or store activity', error: errorMsg });
+                return [3 /*break*/, 8];
+            case 8: return [2 /*return*/, Promise.resolve()];
+        }
+    });
+}); });
 // --- SENT LOG ENDPOINT ---
 app.get('/sent-log', function (req, res) {
     var sentLogPath = path.resolve(__dirname, 'data', 'sentLog.json');

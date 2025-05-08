@@ -182,6 +182,51 @@ app.post('/send-message', (req, res) => __awaiter(void 0, void 0, void 0, functi
     }
     return Promise.resolve();
 }));
+app.post('/send-message-activity', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { clientId, templateId, leadId, userId } = req.body;
+    try {
+        // Check if user exists
+        const [userRows] = yield db_1.pool.query('SELECT id FROM users WHERE id = ?', [userId]);
+        if (!Array.isArray(userRows) || userRows.length === 0) {
+            return res.status(400).json({ success: false, message: `User ID ${userId} does not exist in users table.` });
+        }
+        // Fetch client from database
+        const [rows] = yield db_1.pool.query('SELECT id, name, contact_numbers, optIn FROM persons WHERE id = ?', [clientId]);
+        if (!Array.isArray(rows) || rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Client not found' });
+        }
+        const client = rows[0];
+        // Get template text
+        const templates = require('./backend/csvUtils').loadTemplatesFromCSV(require('path').join(__dirname, 'data/templates.csv'));
+        let template = templates.find((t) => t.id === templateId);
+        if (!template) {
+            template = templates[0];
+        }
+        // --- Personalize message for DB storage ---
+        let message = template.text;
+        if (client.name) {
+            message = message.replace(/{{\s*name\s*}}/gi, client.name);
+        }
+        // Insert into activities with user_id from request
+        const now = new Date();
+        const formattedNow = now.toISOString().slice(0, 19).replace('T', ' ');
+        const [activityResult] = yield db_1.pool.query('INSERT INTO activities (user_id, title, comment, created_at, updated_at) VALUES (?, ?, ?, ?, ?)', [userId, 'Whatsapp', message, formattedNow, formattedNow]);
+        const activityId = activityResult.insertId;
+        // Insert into lead_activities
+        yield db_1.pool.query('INSERT INTO lead_activities (activity_id, lead_id) VALUES (?, ?)', [activityId, leadId]);
+        // Send WhatsApp message
+        const result = yield (0, sendMessage_1.sendMessageToClient)(client.id.toString(), templateId);
+        res.json({ success: true, message: 'Message sent and activity stored!', activityId, result });
+    }
+    catch (error) {
+        let errorMsg = 'Unknown error';
+        if (error instanceof Error)
+            errorMsg = error.message;
+        console.error('send-message-activity error:', error);
+        res.status(500).json({ success: false, message: 'Failed to send message or store activity', error: errorMsg });
+    }
+    return Promise.resolve();
+}));
 // --- SENT LOG ENDPOINT ---
 app.get('/sent-log', (req, res) => {
     const sentLogPath = path.resolve(__dirname, 'data', 'sentLog.json');

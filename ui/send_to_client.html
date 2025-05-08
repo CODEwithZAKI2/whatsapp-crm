@@ -15,6 +15,14 @@
                 <input id="clientId" name="clientId" type="text" readonly>
             </div>
             <div class="form-row">
+                <label for="leadId">Lead ID</label>
+                <input id="leadId" name="leadId" type="text" readonly>
+            </div>
+            <div class="form-row">
+                <label for="userId">User ID</label>
+                <input id="userId" name="userId" type="text" readonly>
+            </div>
+            <div class="form-row">
                 <label for="clientName">Name</label>
                 <input id="clientName" name="clientName" type="text" readonly>
             </div>
@@ -48,6 +56,8 @@
         function prefillClientFields() {
             const params = getUrlParams();
             if (params.clientid) document.getElementById('clientId').value = params.clientid;
+            if (params.lead_id) document.getElementById('leadId').value = params.lead_id;
+            if (params.user_id) document.getElementById('userId').value = params.user_id;
             if (params.name) document.getElementById('clientName').value = params.name;
             if (params.phonenumber) document.getElementById('clientPhone').value = params.phonenumber;
         }
@@ -75,6 +85,8 @@
             e.preventDefault();
             const clientId = document.getElementById('clientId').value;
             const templateId = document.getElementById('templateId').value;
+            const leadId = document.getElementById('leadId').value;
+            const userId = document.getElementById('userId').value;
             const customTemplate = document.getElementById('customTemplate').value.trim();
             const statusDiv = document.getElementById('sendMessageStatus');
             statusDiv.textContent = 'Sending...';
@@ -103,14 +115,14 @@
             }
 
             try {
-                const response = await fetch('/send-message', {
+                const response = await fetch('/send-message-activity', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ clientId, templateId: usedTemplateId })
+                    body: JSON.stringify({ clientId, templateId: usedTemplateId, leadId, userId })
                 });
                 const result = await response.json();
                 if (result.success) {
-                    statusDiv.textContent = 'Message sent successfully!';
+                    statusDiv.textContent = 'Message sent and activity stored!';
                     statusDiv.className = 'success';
                 } else {
                     statusDiv.textContent = result.message || 'Failed to send message';
