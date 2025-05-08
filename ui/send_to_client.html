@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Send WhatsApp Message</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/css/send_to_client.css">
+</head>
+<body>
+    <div class="container">
+        <h2>Send WhatsApp Message</h2>
+        <form id="sendMessageForm">
+            <div class="form-row">
+                <label for="clientId">Client ID</label>
+                <input id="clientId" name="clientId" type="text" readonly>
+            </div>
+            <div class="form-row">
+                <label for="clientName">Name</label>
+                <input id="clientName" name="clientName" type="text" readonly>
+            </div>
+            <div class="form-row">
+                <label for="clientPhone">Phone Number</label>
+                <input id="clientPhone" name="clientPhone" type="text" readonly>
+            </div>
+            <div class="form-row">
+                <label for="templateId">Choose Template</label>
+                <select id="templateId" name="templateId"></select>
+            </div>
+            <div class="form-row">
+                <label for="customTemplate">Or enter a custom template</label>
+                <textarea id="customTemplate" name="customTemplate" placeholder="Type your custom message here..."></textarea>
+            </div>
+            <button type="submit" id="sendBtn">Send Message</button>
+        </form>
+        <div id="sendMessageStatus"></div>
+    </div>
+    <script>
+        // --- Utility: Get URL params ---
+        function getUrlParams() {
+            const params = {};
+            window.location.search.replace(/[?&]+([^=&]+)=([^&]*)/gi, function(m, key, value) {
+                params[key] = decodeURIComponent(value);
+            });
+            return params;
+        }
+
+        // --- Pre-fill client fields from URL ---
+        function prefillClientFields() {
+            const params = getUrlParams();
+            if (params.clientid) document.getElementById('clientId').value = params.clientid;
+            if (params.name) document.getElementById('clientName').value = params.name;
+            if (params.phonenumber) document.getElementById('clientPhone').value = params.phonenumber;
+        }
+
+        // --- Fetch and populate templates ---
+        async function fetchTemplates() {
+            const res = await fetch('/templates');
+            const data = await res.json();
+            return data.templates || [];
+        }
+        async function refreshTemplateSelect() {
+            const templates = await fetchTemplates();
+            const select = document.getElementById('templateId');
+            select.innerHTML = '';
+            templates.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t.id;
+                opt.textContent = t.text.length > 40 ? t.text.slice(0, 40) + '...' : t.text;
+                select.appendChild(opt);
+            });
+        }
+
+        // --- Send Message ---
+        document.getElementById('sendMessageForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const clientId = document.getElementById('clientId').value;
+            const templateId = document.getElementById('templateId').value;
+            const customTemplate = document.getElementById('customTemplate').value.trim();
+            const statusDiv = document.getElementById('sendMessageStatus');
+            statusDiv.textContent = 'Sending...';
+            let usedTemplateId = templateId;
+
+            // If custom template is provided, save it and use it
+            if (customTemplate) {
+                // Save custom template to backend
+                const saveRes = await fetch('/templates', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: customTemplate })
+                });
+                const saveResult = await saveRes.json();
+                if (saveResult.success) {
+                    await refreshTemplateSelect();
+                    // Find the new template id (assume it's the last one)
+                    const templates = await fetchTemplates();
+                    const lastTemplate = templates[templates.length - 1];
+                    usedTemplateId = lastTemplate.id;
+                } else {
+                    statusDiv.textContent = 'Failed to save custom template';
+                    statusDiv.className = 'error';
+                    return;
+                }
+            }
+
+            try {
+                const response = await fetch('/send-message', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ clientId, templateId: usedTemplateId })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    statusDiv.textContent = 'Message sent successfully!';
+                    statusDiv.className = 'success';
+                } else {
+                    statusDiv.textContent = result.message || 'Failed to send message';
+                    statusDiv.className = 'error';
+                }
+            } catch (err) {
+                statusDiv.textContent = 'Error sending message';
+                statusDiv.className = 'error';
+            }
+        });
+
+        // --- Initial load ---
+        prefillClientFields();
+        refreshTemplateSelect();
+    </script>
+</body>
+</html>

@@ -4,3 +4,5 @@ t6,"Hi {{name}}, this is Ahmed. I’m conducting a short survey to understand ho
 t7,"Dear {{name}}, I’m gathering insights from business owners in the area. If you have a few minutes, I’d love to ask you some questions."
 t8,"Good afternoon {{name}}, I’m working on a project about business practices. Would you be willing to share your thoughts in a brief chat?"
 t9,"hi {{name}}, this is Omar,  and i am testing the UI functionality."
+t10,"hi {{name}}, just testing."
+t11,"hi {{name}}, just testing."
