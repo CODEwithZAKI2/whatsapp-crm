@@ -366,6 +366,34 @@ app.get('/current-messages', (req, res) => __awaiter(void 0, void 0, void 0, fun
     }
     return Promise.resolve();
 }));
+// --- CHAT HISTORY ENDPOINT ---
+app.get('/chat-history', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const phone = req.query.phonenumber;
+    if (!phone) {
+        res.json({ messages: [] });
+        return;
+    }
+    try {
+        const client = yield (0, sendMessage_1.getWhatsAppClient)();
+        // WhatsApp format: phone + '@c.us'
+        const chatId = phone + '@c.us';
+        const chat = yield client.getChatById(chatId);
+        const messages = yield chat.fetchMessages({ limit: 50 });
+        const formatted = messages.map(msg => ({
+            fromMe: msg.fromMe,
+            body: msg.body,
+            timestamp: msg.timestamp,
+            id: msg.id._serialized,
+            type: msg.type
+        }));
+        res.json({ messages: formatted });
+    }
+    catch (err) {
+        console.error('Error fetching chat history:', err);
+        res.json({ messages: [] });
+    }
+    return Promise.resolve();
+}));
 // --- Log buffer and emit logic ---
 const server = http.createServer(app);
 const io = new socket_io_1.Server(server, { cors: { origin: "*" } });

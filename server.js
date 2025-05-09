@@ -537,6 +537,48 @@ app.get('/current-messages', function (req, res) { return __awaiter(void 0, void
         }
     });
 }); });
+// --- CHAT HISTORY ENDPOINT ---
+app.get('/chat-history', function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
+    var phone, client, chatId, chat, messages, formatted, err_7;
+    return __generator(this, function (_a) {
+        switch (_a.label) {
+            case 0:
+                phone = req.query.phonenumber;
+                if (!phone) {
+                    res.json({ messages: [] });
+                    return [2 /*return*/];
+                }
+                _a.label = 1;
+            case 1:
+                _a.trys.push([1, 5, , 6]);
+                return [4 /*yield*/, (0, sendMessage_1.getWhatsAppClient)()];
+            case 2:
+                client = _a.sent();
+                chatId = phone + '@c.us';
+                return [4 /*yield*/, client.getChatById(chatId)];
+            case 3:
+                chat = _a.sent();
+                return [4 /*yield*/, chat.fetchMessages({ limit: 50 })];
+            case 4:
+                messages = _a.sent();
+                formatted = messages.map(function (msg) { return ({
+                    fromMe: msg.fromMe,
+                    body: msg.body,
+                    timestamp: msg.timestamp,
+                    id: msg.id._serialized,
+                    type: msg.type
+                }); });
+                res.json({ messages: formatted });
+                return [3 /*break*/, 6];
+            case 5:
+                err_7 = _a.sent();
+                console.error('Error fetching chat history:', err_7);
+                res.json({ messages: [] });
+                return [3 /*break*/, 6];
+            case 6: return [2 /*return*/, Promise.resolve()];
+        }
+    });
+}); });
 // --- Log buffer and emit logic ---
 var server = http.createServer(app);
 var io = new socket_io_1.Server(server, { cors: { origin: "*" } });

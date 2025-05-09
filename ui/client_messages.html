@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Client Chat History</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/css/client_messages.css">
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <span id="clientNameHeader"></span>
+            <span id="clientPhoneHeader" style="margin-left:12px;color:#888;font-size:15px;"></span>
+            <span id="leadIdHeader" style="margin-left:12px;color:#888;font-size:15px;"></span>
+        </div>
+        <div id="chatHistory" class="chat-history"></div>
+        <form id="sendMessageForm" class="chat-input-row" style="display:flex;gap:8px;padding:12px 18px 18px 18px;align-items:center;">
+            <input type="text" id="messageInput" placeholder="Type your message..." autocomplete="off" style="flex:1;padding:10px;border-radius:18px;border:1px solid #d1d5db;font-size:15px;">
+            <button type="submit" id="sendBtn" style="padding:10px 22px;border-radius:18px;background:#2dbe60;color:#fff;border:none;font-weight:bold;cursor:pointer;">Send</button>
+        </form>
+    </div>
+    <script>
+        // Utility: Get URL params
+        function getUrlParams() {
+            const params = {};
+            window.location.search.replace(/[?&]+([^=&]+)=([^&]*)/gi, function(m, key, value) {
+                params[key] = decodeURIComponent(value);
+            });
+            return params;
+        }
+
+        // Render chat messages
+        function renderChat(messages, clientPhone) {
+            const chatDiv = document.getElementById('chatHistory');
+            chatDiv.innerHTML = '';
+            messages.forEach(msg => {
+                const msgDiv = document.createElement('div');
+                msgDiv.className = 'chat-message ' + (msg.fromMe ? 'me' : 'client');
+                msgDiv.innerHTML = `
+                    <div class="msg-body">${msg.body}</div>
+                    <div class="msg-meta">${new Date(msg.timestamp * 1000).toLocaleString()}</div>
+                `;
+                chatDiv.appendChild(msgDiv);
+            });
+            chatDiv.scrollTop = chatDiv.scrollHeight;
+        }
+
+        // Fetch chat history from backend
+        async function fetchChatHistory(clientPhone) {
+            // The backend expects the phone in WhatsApp format (with country code, no +)
+            const res = await fetch(`/chat-history?phonenumber=${encodeURIComponent(clientPhone)}`);
+            const data = await res.json();
+            return data.messages || [];
+        }
+
+        // Send message to backend
+        async function sendMessageToClient({ clientId, name, phone, leadId, userId }, message) {
+            // Save as a new template, then send via /send-message-activity
+            const saveRes = await fetch('/templates', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: message })
+            });
+            const saveResult = await saveRes.json();
+            if (!saveResult.success) throw new Error('Failed to save custom template');
+            // Get the new template id (assume last one)
+            const templatesRes = await fetch('/templates');
+            const templatesData = await templatesRes.json();
+            const lastTemplate = templatesData.templates[templatesData.templates.length - 1];
+            // Send message with all required data
+            const sendRes = await fetch('/send-message-activity', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    clientId,
+                    templateId: lastTemplate.id,
+                    leadId,
+                    userId
+                })
+            });
+            const sendResult = await sendRes.json();
+            if (!sendResult.success) throw new Error(sendResult.message || 'Failed to send message');
+            return sendResult;
+        }
+
+        // Initial load
+        (async function() {
+            const params = getUrlParams();
+            const clientId = params.clientid;
+            const clientName = params.name;
+            const clientPhone = params.phonenumber;
+            const leadId = params.lead_id;
+            const userId = params.user_id;
+
+            // Show in header
+            document.getElementById('clientNameHeader').textContent = clientName ? clientName : '';
+            document.getElementById('clientPhoneHeader').textContent = clientPhone ? clientPhone : '';
+            document.getElementById('leadIdHeader').textContent = leadId ? `Lead ID: ${leadId}` : '';
+
+            if (!clientId || !clientPhone || !leadId || !userId) {
+                document.getElementById('chatHistory').innerHTML = '<div class="error">Missing client info in URL.</div>';
+                document.getElementById('sendMessageForm').style.display = 'none';
+                return;
+            }
+            document.getElementById('chatHistory').innerHTML = '<div class="loading">Loading chat history...</div>';
+            try {
+                const messages = await fetchChatHistory(clientPhone);
+                if (messages.length === 0) {
+                    document.getElementById('chatHistory').innerHTML = '<div class="empty">No messages found.</div>';
+                } else {
+                    renderChat(messages, clientPhone);
+                }
+            } catch (err) {
+                document.getElementById('chatHistory').innerHTML = '<div class="error">Failed to load chat history.</div>';
+            }
+
+            // --- Send message form logic ---
+            const sendForm = document.getElementById('sendMessageForm');
+            const input = document.getElementById('messageInput');
+            sendForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const msg = input.value.trim();
+                if (!msg) return;
+                input.disabled = true;
+                sendForm.querySelector('button').disabled = true;
+                try {
+                    await sendMessageToClient(
+                        { clientId, name: clientName, phone: clientPhone, leadId, userId },
+                        msg
+                    );
+                    input.value = '';
+                    // Wait a moment to ensure WhatsApp has processed the message
+                    setTimeout(async () => {
+                        const messages = await fetchChatHistory(clientPhone);
+                        renderChat(messages, clientPhone);
+                        input.disabled = false;
+                        sendForm.querySelector('button').disabled = false;
+                        input.focus();
+                    }, 1200); // 1.2s delay for WhatsApp to sync
+                } catch (err) {
+                    alert('Failed to send message: ' + (err.message || err));
+                    input.disabled = false;
+                    sendForm.querySelector('button').disabled = false;
+                    input.focus();
+                }
+            });
+        })();
+    </script>
+</body>
+</html>
