@@ -19,6 +19,7 @@
             <button type="submit" id="sendBtn" style="padding:10px 22px;border-radius:18px;background:#2dbe60;color:#fff;border:none;font-weight:bold;cursor:pointer;">Send</button>
         </form>
     </div>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
         // Utility: Get URL params
         function getUrlParams() {
@@ -83,6 +84,36 @@
             return sendResult;
         }
 
+        // Realtime chat polling using Socket.IO
+        let lastMessageId = null;
+        let clientPhoneGlobal = null;
+
+        function updateChatRealtime(clientPhone) {
+            clientPhoneGlobal = clientPhone;
+            // Listen for backend-log for new messages (optional, for debugging)
+            if (window.io) {
+                const socket = io();
+                // Listen for a custom event for new WhatsApp messages (you must emit this from backend)
+                socket.on('whatsapp-message', function(data) {
+                    if (data && data.phone === clientPhoneGlobal) {
+                        fetchChatHistory(clientPhoneGlobal).then(messages => {
+                            renderChat(messages, clientPhoneGlobal);
+                        });
+                    }
+                });
+            }
+            // Fallback: poll every 2 seconds for new messages
+            setInterval(async () => {
+                if (!clientPhoneGlobal) return;
+                const messages = await fetchChatHistory(clientPhoneGlobal);
+                // Only update if there are new messages
+                if (messages.length && (!lastMessageId || messages[messages.length - 1].id !== lastMessageId)) {
+                    renderChat(messages, clientPhoneGlobal);
+                    lastMessageId = messages.length ? messages[messages.length - 1].id : null;
+                }
+            }, 2000);
+        }
+
         // Initial load
         (async function() {
             const params = getUrlParams();
@@ -109,10 +140,14 @@
                     document.getElementById('chatHistory').innerHTML = '<div class="empty">No messages found.</div>';
                 } else {
                     renderChat(messages, clientPhone);
+                    lastMessageId = messages.length ? messages[messages.length - 1].id : null;
                 }
             } catch (err) {
                 document.getElementById('chatHistory').innerHTML = '<div class="error">Failed to load chat history.</div>';
             }
+
+            // Start realtime updates
+            updateChatRealtime(clientPhone);
 
             // --- Send message form logic ---
             const sendForm = document.getElementById('sendMessageForm');
