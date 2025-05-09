@@ -32,6 +32,8 @@ console.log(`Looking for index.html at: ${indexPath}`);
 if (!fs.existsSync(indexPath)) {
     console.error('ERROR: index.html not found at', indexPath);
 }
+// Serve sound files
+app.use('/sound', express.static(path.join(__dirname, 'sound')));
 // Serve static files
 app.use(express.static(uiPath));
 // Serve index.html for the root route

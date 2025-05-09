@@ -19,6 +19,8 @@
             <button type="submit" id="sendBtn" style="padding:10px 22px;border-radius:18px;background:#2dbe60;color:#fff;border:none;font-weight:bold;cursor:pointer;">Send</button>
         </form>
     </div>
+    <!-- Add audio element for notification sound -->
+    <audio id="newMsgSound" src="/sound/notification.wav" preload="auto"></audio>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
         // Utility: Get URL params
@@ -30,9 +32,38 @@
             return params;
         }
 
-        // Render chat messages
-        function renderChat(messages, clientPhone) {
+        // Play notification sound
+        function playNewMessageSound() {
+            const audio = document.getElementById('newMsgSound');
+            if (audio) {
+                // Try to resume audio context if suspended (required by some browsers)
+                if (audio.context && audio.context.state === 'suspended') {
+                    audio.context.resume();
+                }
+                audio.currentTime = 0;
+                // Play only if user has interacted with the page
+                audio.play().catch((e) => {
+                    // If play fails, prompt user to interact
+                    console.warn('Audio play failed, user interaction required:', e);
+                });
+            }
+        }
+
+        // On first user interaction, unlock audio
+        document.body.addEventListener('click', function unlockAudio() {
+            const audio = document.getElementById('newMsgSound');
+            if (audio) {
+                audio.play().catch(() => {});
+                audio.pause();
+                audio.currentTime = 0;
+            }
+            document.body.removeEventListener('click', unlockAudio);
+        });
+
+        // Render chat messages and play sound if new
+        function renderChat(messages, clientPhone, playSoundIfNew = false) {
             const chatDiv = document.getElementById('chatHistory');
+            const prevLastId = window.lastMessageId || null;
             chatDiv.innerHTML = '';
             messages.forEach(msg => {
                 const msgDiv = document.createElement('div');
@@ -44,6 +75,11 @@
                 chatDiv.appendChild(msgDiv);
             });
             chatDiv.scrollTop = chatDiv.scrollHeight;
+            // Play sound if new message arrived (and it's not the first load)
+            if (playSoundIfNew && messages.length && prevLastId && messages[messages.length - 1].id !== prevLastId) {
+                playNewMessageSound();
+            }
+            window.lastMessageId = messages.length ? messages[messages.length - 1].id : null;
         }
 
         // Fetch chat history from backend
@@ -97,7 +133,7 @@
                 socket.on('whatsapp-message', function(data) {
                     if (data && data.phone === clientPhoneGlobal) {
                         fetchChatHistory(clientPhoneGlobal).then(messages => {
-                            renderChat(messages, clientPhoneGlobal);
+                            renderChat(messages, clientPhoneGlobal, true);
                         });
                     }
                 });
@@ -108,7 +144,7 @@
                 const messages = await fetchChatHistory(clientPhoneGlobal);
                 // Only update if there are new messages
                 if (messages.length && (!lastMessageId || messages[messages.length - 1].id !== lastMessageId)) {
-                    renderChat(messages, clientPhoneGlobal);
+                    renderChat(messages, clientPhoneGlobal, true);
                     lastMessageId = messages.length ? messages[messages.length - 1].id : null;
                 }
             }, 2000);
