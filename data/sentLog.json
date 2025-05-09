@@ -208,5 +208,11 @@
     "templateId": "t18",
     "time": "2025-05-09T09:08:37.659Z",
     "status": "sent"
+  },
+  {
+    "clientId": 1,
+    "templateId": "t19",
+    "time": "2025-05-09T09:58:21.203Z",
+    "status": "sent"
   }
 ]
