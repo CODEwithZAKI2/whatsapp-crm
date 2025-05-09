@@ -290,7 +290,29 @@ app.post('/send-message', function (req, res) { return __awaiter(void 0, void 0,
     });
 }); });
 app.post('/send-message-activity', function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
-    var _a, clientId, templateId, leadId, userId, userRows, rows, client, templates, template, message, now, formattedNow, activityResult, activityId, result, error_2, errorMsg;
+    // --- Use China timezone for created_at and updated_at ---
+    // Use Intl.DateTimeFormat for accurate China time
+    function getChinaTimeString() {
+        var now = new Date();
+        // Format to 'YYYY-MM-DD HH:mm:ss' in Asia/Shanghai timezone
+        var formatter = new Intl.DateTimeFormat('en-CA', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false,
+            timeZone: 'Asia/Shanghai'
+        });
+        var parts = formatter.formatToParts(now).reduce(function (acc, part) {
+            if (part.type !== 'literal')
+                acc[part.type] = part.value;
+            return acc;
+        }, {});
+        return "".concat(parts.year, "-").concat(parts.month, "-").concat(parts.day, " ").concat(parts.hour, ":").concat(parts.minute, ":").concat(parts.second);
+    }
+    var _a, clientId, templateId, leadId, userId, userRows, rows, client, templates, template, message, formattedNow, activityResult, activityId, result, error_2, errorMsg;
     return __generator(this, function (_b) {
         switch (_b.label) {
             case 0:
@@ -320,8 +342,8 @@ app.post('/send-message-activity', function (req, res) { return __awaiter(void 0
                 if (client.name) {
                     message = message.replace(/{{\s*name\s*}}/gi, client.name);
                 }
-                now = new Date();
-                formattedNow = now.toISOString().slice(0, 19).replace('T', ' ');
+                formattedNow = getChinaTimeString();
+                console.log('[China Time for activity]:', formattedNow);
                 return [4 /*yield*/, db_1.pool.query('INSERT INTO activities (user_id, title, comment, created_at, updated_at) VALUES (?, ?, ?, ?, ?)', [userId, 'Whatsapp', message, formattedNow, formattedNow])];
             case 4:
                 activityResult = (_b.sent())[0];

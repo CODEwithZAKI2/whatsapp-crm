@@ -219,9 +219,29 @@ app.post('/send-message-activity', async (req, res): Promise<any> => {
             message = message.replace(/{{\s*name\s*}}/gi, client.name);
         }
 
-        // Insert into activities with user_id from request
-        const now = new Date();
-        const formattedNow = now.toISOString().slice(0, 19).replace('T', ' ');
+        // --- Use China timezone for created_at and updated_at ---
+        // Use Intl.DateTimeFormat for accurate China time
+        function getChinaTimeString() {
+            const now = new Date();
+            // Format to 'YYYY-MM-DD HH:mm:ss' in Asia/Shanghai timezone
+            const formatter = new Intl.DateTimeFormat('en-CA', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false,
+                timeZone: 'Asia/Shanghai'
+            });
+            const parts = formatter.formatToParts(now).reduce((acc, part) => {
+                if (part.type !== 'literal') acc[part.type] = part.value;
+                return acc;
+            }, {} as Record<string, string>);
+            return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+        }
+        const formattedNow = getChinaTimeString();
+        console.log('[China Time for activity]:', formattedNow);
 
         const [activityResult]: any = await pool.query(
             'INSERT INTO activities (user_id, title, comment, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
