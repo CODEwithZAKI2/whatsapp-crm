@@ -156,7 +156,7 @@ function sendMessageToClient(clientId, templateId) {
                         throw new Error('Client opted out');
                     }
                     if (!/^\d{8,15}$/.test(phone)) {
-                        console.error('Invalid phone number:', phone);
+                        console.error('Invalid phone Number:', phone);
                         throw new Error('Invalid phone number');
                     }
                     templates = (0, csvUtils_1.loadTemplatesFromCSV)(TEMPLATES_CSV);

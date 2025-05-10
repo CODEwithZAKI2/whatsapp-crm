@@ -16,8 +16,8 @@
         <div id="chatHistory" class="chat-history"></div>
         <form id="sendMessageForm" class="chat-input-row" style="display:flex;gap:8px;padding:12px 18px 18px 18px;align-items:center;">
             <input type="text" id="messageInput" placeholder="Type your message..." autocomplete="off" style="flex:1;padding:10px;border-radius:18px;border:1px solid #d1d5db;font-size:15px;">
-            <button type="button" id="recordBtn" style="padding:10px 14px;border-radius:18px;background:#2563eb;color:#fff;border:none;font-weight:bold;cursor:pointer;margin-right:4px;" title="Record Voice">
-                <span id="micIcon">&#127908;</span>
+            <button type="button" id="recordBtn" style="padding:10px 14px;border-radius:18px;background:#c2cfec;color:#fff;border:none;font-weight:bold;cursor:pointer;margin-right:4px;" title="Record Voice">
+                <span id="micIcon">🎙️</span>
             </button>
             <button type="submit" id="sendBtn" style="padding:10px 22px;border-radius:18px;background:#2dbe60;color:#fff;border:none;font-weight:bold;cursor:pointer;">Send</button>
         </form>
@@ -181,7 +181,7 @@
                 mediaRecorder.onstop = async () => {
                     isRecording = false;
                     recordBtn.disabled = false;
-                    micIcon.textContent = '🎤';
+                    micIcon.textContent = '🎙️';
                     stream.getTracks().forEach(track => track.stop());
                     if (audioChunks.length === 0) return;
                     // Use the same mimeType and extension as recording
@@ -219,7 +219,7 @@
                 mediaRecorder.onerror = (e) => {
                     isRecording = false;
                     recordBtn.disabled = false;
-                    micIcon.textContent = '🎤';
+                    micIcon.textContent = '🎙️';
                     alert('Recording error: ' + (e.error && e.error.message ? e.error.message : 'Unknown error'));
                 };
                 mediaRecorder.start();
@@ -329,4 +329,3 @@
     </script>
 </body>
 </html>
-``` 

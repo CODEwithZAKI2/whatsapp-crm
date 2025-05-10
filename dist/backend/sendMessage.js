@@ -111,7 +111,7 @@ function sendMessageToClient(clientId, templateId) {
             throw new Error('Client opted out');
         }
         if (!/^\d{8,15}$/.test(phone)) {
-            console.error('Invalid phone number:', phone);
+            console.error('Invalid phone Number:', phone);
             throw new Error('Invalid phone number');
         }
         // Load templates from CSV (or you can migrate this to DB as well)
