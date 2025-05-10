@@ -100,7 +100,7 @@ export async function sendMessageToClient(clientId: string, templateId: string) 
         throw new Error('Client opted out');
     }
     if (!/^\d{8,15}$/.test(phone)) {
-        console.error('Invalid phone number:', phone);
+        console.error('Invalid phone Number:', phone);
         throw new Error('Invalid phone number');
     }
 

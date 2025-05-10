@@ -3,7 +3,7 @@
 .env
 .wwebjs_auth
 .wwebjs_cache
-
+/backend/voices
 # If you add .wwebjs_cache to your .gitignore file,
 # any files or folders named .wwebjs_cache will be ignored by git and not tracked or pushed to your repository.
 # This is generally OK and recommended, as .wwebjs_cache contains session/cache data for whatsapp-web.js
