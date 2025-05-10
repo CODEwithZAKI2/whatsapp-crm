@@ -16,6 +16,9 @@
         <div id="chatHistory" class="chat-history"></div>
         <form id="sendMessageForm" class="chat-input-row" style="display:flex;gap:8px;padding:12px 18px 18px 18px;align-items:center;">
             <input type="text" id="messageInput" placeholder="Type your message..." autocomplete="off" style="flex:1;padding:10px;border-radius:18px;border:1px solid #d1d5db;font-size:15px;">
+            <button type="button" id="recordBtn" style="padding:10px 14px;border-radius:18px;background:#2563eb;color:#fff;border:none;font-weight:bold;cursor:pointer;margin-right:4px;" title="Record Voice">
+                <span id="micIcon">&#127908;</span>
+            </button>
             <button type="submit" id="sendBtn" style="padding:10px 22px;border-radius:18px;background:#2dbe60;color:#fff;border:none;font-weight:bold;cursor:pointer;">Send</button>
         </form>
     </div>
@@ -119,6 +122,99 @@
             if (!sendResult.success) throw new Error(sendResult.message || 'Failed to send message');
             return sendResult;
         }
+
+        // --- Voice Recording Logic ---
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isRecording = false;
+        const recordBtn = document.getElementById('recordBtn');
+        const micIcon = document.getElementById('micIcon');
+        recordBtn.addEventListener('click', async function () {
+            if (isRecording) {
+                // Stop recording
+                mediaRecorder && mediaRecorder.stop();
+                recordBtn.disabled = true;
+                micIcon.textContent = '⏹️';
+                return;
+            }
+            // Start recording
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // Try a more compatible mimeType for MediaRecorder
+                let mimeType = '';
+                let fileExt = 'webm';
+                if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+                    mimeType = 'audio/webm;codecs=opus';
+                    fileExt = 'webm';
+                } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+                    mimeType = 'audio/webm';
+                    fileExt = 'webm';
+                } else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
+                    mimeType = 'audio/ogg;codecs=opus';
+                    fileExt = 'ogg';
+                } else if (MediaRecorder.isTypeSupported('audio/wav')) {
+                    mimeType = 'audio/wav';
+                    fileExt = 'wav';
+                } else {
+                    mimeType = '';
+                    fileExt = 'webm';
+                }
+                mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+                audioChunks = [];
+                mediaRecorder.ondataavailable = e => {
+                    if (e.data.size > 0) audioChunks.push(e.data);
+                };
+                mediaRecorder.onstop = async () => {
+                    isRecording = false;
+                    recordBtn.disabled = false;
+                    micIcon.textContent = '🎤';
+                    stream.getTracks().forEach(track => track.stop());
+                    if (audioChunks.length === 0) return;
+                    // Use the same mimeType and extension as recording
+                    const audioBlob = new Blob(audioChunks, { type: mimeType || 'audio/webm' });
+                    // Upload to backend
+                    try {
+                        const params = getUrlParams();
+                        const clientId = params.clientid;
+                        const clientPhone = params.phonenumber;
+                        const leadId = params.lead_id;
+                        const userId = params.user_id;
+                        const formData = new FormData();
+                        formData.append('voice', audioBlob, `voice.${fileExt}`);
+                        formData.append('clientId', clientId);
+                        formData.append('phonenumber', clientPhone);
+                        formData.append('leadId', leadId);
+                        formData.append('userId', userId);
+                        const res = await fetch('/send-voice-message', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        const result = await res.json();
+                        if (result.success) {
+                            setTimeout(async () => {
+                                const messages = await fetchChatHistory(clientPhone);
+                                renderChat(messages, clientPhone, true);
+                            }, 1200);
+                        } else {
+                            alert('Failed to send voice message: ' + (result.message || result.error || 'Unknown error'));
+                        }
+                    } catch (err) {
+                        alert('Voice upload failed: ' + (err.message || err));
+                    }
+                };
+                mediaRecorder.onerror = (e) => {
+                    isRecording = false;
+                    recordBtn.disabled = false;
+                    micIcon.textContent = '🎤';
+                    alert('Recording error: ' + (e.error && e.error.message ? e.error.message : 'Unknown error'));
+                };
+                mediaRecorder.start();
+                isRecording = true;
+                micIcon.textContent = '⏺️';
+            } catch (err) {
+                alert('Could not start recording: ' + (err.message || err));
+            }
+        });
 
         // Realtime chat polling using Socket.IO
         let lastMessageId = null;

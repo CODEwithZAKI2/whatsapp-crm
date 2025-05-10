@@ -66,6 +66,8 @@ var sendMessage_1 = require("./backend/sendMessage");
 var csvUtils_1 = require("./backend/csvUtils");
 var scheduler_1 = require("./backend/scheduler");
 var db_1 = require("./backend/db");
+var multer = require('multer'); // Fix multer import for CommonJS compatibility
+var whatsapp_web_js_1 = require("whatsapp-web.js");
 var app = express();
 var PORT = 3000;
 var CLIENTS_CSV = path.resolve(__dirname, 'data', 'clients.csv');
@@ -372,6 +374,160 @@ app.post('/send-message-activity', function (req, res) { return __awaiter(void 0
         }
     });
 }); });
+// --- SEND VOICE MESSAGE ---
+var voicesDir = path.join(__dirname, 'backend', 'voices');
+if (!fs.existsSync(voicesDir))
+    fs.mkdirSync(voicesDir, { recursive: true });
+var upload = multer({ dest: voicesDir });
+app.post('/send-voice-message', upload.single('voice'), function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
+    var _a, clientId, phonenumber, leadId, userId, ext, newPath_1, phone, rows, numbers, chatId, stat, allowedExts, oggPath_1, sendPath, ffmpeg_1, ffmpegPath, err_5, media, client, err_6, err2_1, err_7, errorMsg;
+    return __generator(this, function (_b) {
+        switch (_b.label) {
+            case 0:
+                _b.trys.push([0, 17, , 18]);
+                _a = req.body, clientId = _a.clientId, phonenumber = _a.phonenumber, leadId = _a.leadId, userId = _a.userId;
+                if (!req.file) {
+                    return [2 /*return*/, res.status(400).json({ success: false, message: 'No voice file uploaded' })];
+                }
+                ext = '';
+                if (req.file.originalname.endsWith('.webm'))
+                    ext = '.webm';
+                else if (req.file.originalname.endsWith('.ogg'))
+                    ext = '.ogg';
+                else if (req.file.originalname.endsWith('.wav'))
+                    ext = '.wav';
+                else
+                    ext = path.extname(req.file.originalname) || '.webm';
+                newPath_1 = req.file.path + ext;
+                fs.renameSync(req.file.path, newPath_1);
+                phone = phonenumber;
+                if (!(!phone && clientId)) return [3 /*break*/, 2];
+                return [4 /*yield*/, db_1.pool.query('SELECT contact_numbers FROM persons WHERE id = ?', [clientId])];
+            case 1:
+                rows = (_b.sent())[0];
+                if (Array.isArray(rows) && rows.length > 0) {
+                    try {
+                        numbers = JSON.parse(rows[0].contact_numbers);
+                        if (Array.isArray(numbers) && numbers.length > 0 && numbers[0].value) {
+                            phone = numbers[0].value;
+                        }
+                    }
+                    catch (_c) { }
+                }
+                _b.label = 2;
+            case 2:
+                if (!phone)
+                    return [2 /*return*/, res.status(400).json({ success: false, message: 'No phone number found' })];
+                chatId = phone + '@c.us';
+                stat = fs.statSync(newPath_1);
+                if (stat.size > 16 * 1024 * 1024) {
+                    fs.unlinkSync(newPath_1);
+                    return [2 /*return*/, res.status(400).json({ success: false, message: 'Voice message is too large (max 16MB)' })];
+                }
+                allowedExts = ['.webm', '.ogg', '.wav', '.mp3', '.m4a'];
+                if (!allowedExts.includes(ext)) {
+                    fs.unlinkSync(newPath_1);
+                    return [2 /*return*/, res.status(400).json({ success: false, message: 'Unsupported audio format' })];
+                }
+                oggPath_1 = newPath_1.replace(ext, '.ogg');
+                sendPath = oggPath_1;
+                _b.label = 3;
+            case 3:
+                _b.trys.push([3, 5, , 6]);
+                ffmpeg_1 = require('fluent-ffmpeg');
+                ffmpegPath = 'C:\\ffmpeg\\ffmpeg-2025-05-07-git-1b643e3f65-full_build\\bin\\ffmpeg.exe';
+                ffmpeg_1.setFfmpegPath(ffmpegPath);
+                // Debug: print ffmpeg path and version
+                ffmpeg_1()._getFfmpegPath(function (err, foundPath) {
+                    if (err || !foundPath) {
+                        console.error('ffmpeg binary not found. Please ensure ffmpeg is installed and in your PATH or set FFMPEG_PATH.');
+                    }
+                    else {
+                        console.log('Using ffmpeg binary at:', foundPath);
+                        var exec = require('child_process').exec;
+                        exec("\"".concat(foundPath, "\" -version"), function (error, stdout, stderr) {
+                            if (error) {
+                                console.error('Error running ffmpeg -version:', error);
+                            }
+                            else {
+                                console.log('ffmpeg -version output:\n', stdout);
+                            }
+                        });
+                    }
+                });
+                // Convert to ogg/opus
+                return [4 /*yield*/, new Promise(function (resolve, reject) {
+                        ffmpeg_1(newPath_1)
+                            .audioCodec('libopus')
+                            .format('ogg')
+                            .on('start', function (cmd) {
+                            console.log('ffmpeg command:', cmd);
+                        })
+                            .on('end', function () {
+                            console.log('ffmpeg conversion finished:', oggPath_1);
+                            resolve();
+                        })
+                            .on('error', function (err) {
+                            console.error('ffmpeg conversion error:', err);
+                            reject(err);
+                        })
+                            .save(oggPath_1);
+                    })];
+            case 4:
+                // Convert to ogg/opus
+                _b.sent();
+                return [3 /*break*/, 6];
+            case 5:
+                err_5 = _b.sent();
+                console.error('ffmpeg conversion failed:', err_5);
+                return [2 /*return*/, res.status(500).json({
+                        success: false,
+                        message: 'Failed to convert audio to WhatsApp-compatible format. Make sure ffmpeg is installed and available in your PATH, or set the correct ffmpeg path in server.ts.',
+                        error: err_5 instanceof Error ? err_5.message : String(err_5)
+                    })];
+            case 6: return [4 /*yield*/, whatsapp_web_js_1.MessageMedia.fromFilePath(sendPath)];
+            case 7:
+                media = _b.sent();
+                return [4 /*yield*/, (0, sendMessage_1.getWhatsAppClient)()];
+            case 8:
+                client = _b.sent();
+                _b.label = 9;
+            case 9:
+                _b.trys.push([9, 11, , 16]);
+                return [4 /*yield*/, client.sendMessage(chatId, media, { sendAudioAsVoice: true })];
+            case 10:
+                _b.sent();
+                return [3 /*break*/, 16];
+            case 11:
+                err_6 = _b.sent();
+                console.error('sendAudioAsVoice failed, trying as normal audio:', err_6);
+                _b.label = 12;
+            case 12:
+                _b.trys.push([12, 14, , 15]);
+                return [4 /*yield*/, client.sendMessage(chatId, media)];
+            case 13:
+                _b.sent();
+                return [3 /*break*/, 15];
+            case 14:
+                err2_1 = _b.sent();
+                console.error('Sending as normal audio also failed:', err2_1);
+                return [2 /*return*/, res.status(500).json({ success: false, message: 'Failed to send voice message (WhatsApp rejected the file)', error: err2_1 instanceof Error ? err2_1.message : String(err2_1) })];
+            case 15: return [3 /*break*/, 16];
+            case 16:
+                res.json({ success: true, message: 'Voice message sent!' });
+                return [3 /*break*/, 18];
+            case 17:
+                err_7 = _b.sent();
+                errorMsg = 'Unknown error';
+                if (err_7 instanceof Error)
+                    errorMsg = err_7.message;
+                console.error('send-voice-message error:', err_7);
+                res.status(500).json({ success: false, message: 'Failed to send voice message', error: errorMsg });
+                return [3 /*break*/, 18];
+            case 18: return [2 /*return*/, Promise.resolve()];
+        }
+    });
+}); });
 // --- SENT LOG ENDPOINT ---
 app.get('/sent-log', function (req, res) {
     var sentLogPath = path.resolve(__dirname, 'data', 'sentLog.json');
@@ -402,7 +558,7 @@ app.post('/start-scheduler', function (req, res) { return __awaiter(void 0, void
         templates = (0, csvUtils_1.loadTemplatesFromCSV)(TEMPLATES_CSV);
         scheduler = new scheduler_1.SafeScheduler(clients, templates, true);
         scheduler.sendFunction = function (clientObj, template, msg) { return __awaiter(void 0, void 0, void 0, function () {
-            var err_5;
+            var err_8;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -413,9 +569,9 @@ app.post('/start-scheduler', function (req, res) { return __awaiter(void 0, void
                         console.log("Scheduler: Message sent to client ".concat(clientObj.id, " using template ").concat(template.id));
                         return [3 /*break*/, 3];
                     case 2:
-                        err_5 = _a.sent();
-                        console.error("Scheduler: Failed to send message to client ".concat(clientObj.id, ":"), err_5);
-                        throw err_5;
+                        err_8 = _a.sent();
+                        console.error("Scheduler: Failed to send message to client ".concat(clientObj.id, ":"), err_8);
+                        throw err_8;
                     case 3: return [2 /*return*/];
                 }
             });
@@ -477,7 +633,7 @@ app.get('/scheduler-status', function (req, res) { return __awaiter(void 0, void
 }); });
 // --- MESSAGES FROM OPEN CHATS ---
 app.get('/current-messages', function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
-    var client, chats, allMessages_1, _loop_1, _i, chats_1, chat, err_6, errorMsg;
+    var client, chats, allMessages_1, _loop_1, _i, chats_1, chat, err_9, errorMsg;
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0:
@@ -529,10 +685,10 @@ app.get('/current-messages', function (req, res) { return __awaiter(void 0, void
                 res.json({ messages: allMessages_1 });
                 return [3 /*break*/, 8];
             case 7:
-                err_6 = _a.sent();
+                err_9 = _a.sent();
                 errorMsg = 'Unknown error';
-                if (err_6 instanceof Error)
-                    errorMsg = err_6.message;
+                if (err_9 instanceof Error)
+                    errorMsg = err_9.message;
                 res.status(500).json({ messages: [], error: errorMsg });
                 return [3 /*break*/, 8];
             case 8: return [2 /*return*/, Promise.resolve()];
@@ -541,7 +697,7 @@ app.get('/current-messages', function (req, res) { return __awaiter(void 0, void
 }); });
 // --- CHAT HISTORY ENDPOINT ---
 app.get('/chat-history', function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
-    var phone, client, chatId, chat, messages, formatted, err_7;
+    var phone, client, chatId, chat, messages, formatted, err_10;
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0:
@@ -573,8 +729,8 @@ app.get('/chat-history', function (req, res) { return __awaiter(void 0, void 0, 
                 res.json({ messages: formatted });
                 return [3 /*break*/, 6];
             case 5:
-                err_7 = _a.sent();
-                console.error('Error fetching chat history:', err_7);
+                err_10 = _a.sent();
+                console.error('Error fetching chat history:', err_10);
                 res.json({ messages: [] });
                 return [3 /*break*/, 6];
             case 6: return [2 /*return*/, Promise.resolve()];

@@ -19,6 +19,8 @@ const sendMessage_1 = require("./backend/sendMessage");
 const csvUtils_1 = require("./backend/csvUtils");
 const scheduler_1 = require("./backend/scheduler");
 const db_1 = require("./backend/db");
+const multer = require('multer'); // Fix multer import for CommonJS compatibility
+const whatsapp_web_js_1 = require("whatsapp-web.js");
 const app = express();
 const PORT = 3000;
 const CLIENTS_CSV = path.resolve(__dirname, 'data', 'clients.csv');
@@ -247,6 +249,137 @@ app.post('/send-message-activity', (req, res) => __awaiter(void 0, void 0, void 
             errorMsg = error.message;
         console.error('send-message-activity error:', error);
         res.status(500).json({ success: false, message: 'Failed to send message or store activity', error: errorMsg });
+    }
+    return Promise.resolve();
+}));
+// --- SEND VOICE MESSAGE ---
+const voicesDir = path.join(__dirname, 'backend', 'voices');
+if (!fs.existsSync(voicesDir))
+    fs.mkdirSync(voicesDir, { recursive: true });
+const upload = multer({ dest: voicesDir });
+app.post('/send-voice-message', upload.single('voice'), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { clientId, phonenumber, leadId, userId } = req.body;
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: 'No voice file uploaded' });
+        }
+        // Rename file to have correct extension for listenability
+        let ext = '';
+        if (req.file.originalname.endsWith('.webm'))
+            ext = '.webm';
+        else if (req.file.originalname.endsWith('.ogg'))
+            ext = '.ogg';
+        else if (req.file.originalname.endsWith('.wav'))
+            ext = '.wav';
+        else
+            ext = path.extname(req.file.originalname) || '.webm';
+        const newPath = req.file.path + ext;
+        fs.renameSync(req.file.path, newPath);
+        // Find client phone
+        let phone = phonenumber;
+        if (!phone && clientId) {
+            const [rows] = yield db_1.pool.query('SELECT contact_numbers FROM persons WHERE id = ?', [clientId]);
+            if (Array.isArray(rows) && rows.length > 0) {
+                try {
+                    const numbers = JSON.parse(rows[0].contact_numbers);
+                    if (Array.isArray(numbers) && numbers.length > 0 && numbers[0].value) {
+                        phone = numbers[0].value;
+                    }
+                }
+                catch (_a) { }
+            }
+        }
+        if (!phone)
+            return res.status(400).json({ success: false, message: 'No phone number found' });
+        const chatId = phone + '@c.us';
+        // --- Check file size and type before sending ---
+        const stat = fs.statSync(newPath);
+        if (stat.size > 16 * 1024 * 1024) {
+            fs.unlinkSync(newPath);
+            return res.status(400).json({ success: false, message: 'Voice message is too large (max 16MB)' });
+        }
+        const allowedExts = ['.webm', '.ogg', '.wav', '.mp3', '.m4a'];
+        if (!allowedExts.includes(ext)) {
+            fs.unlinkSync(newPath);
+            return res.status(400).json({ success: false, message: 'Unsupported audio format' });
+        }
+        // --- Always convert to OGG/Opus for WhatsApp mobile compatibility ---
+        const oggPath = newPath.replace(ext, '.ogg');
+        let sendPath = oggPath;
+        try {
+            const ffmpeg = require('fluent-ffmpeg');
+            // Set ffmpeg path explicitly to your actual ffmpeg.exe location
+            const ffmpegPath = 'C:\\ffmpeg\\ffmpeg-2025-05-07-git-1b643e3f65-full_build\\bin\\ffmpeg.exe';
+            ffmpeg.setFfmpegPath(ffmpegPath);
+            // Debug: print ffmpeg path and version
+            ffmpeg()._getFfmpegPath((err, foundPath) => {
+                if (err || !foundPath) {
+                    console.error('ffmpeg binary not found. Please ensure ffmpeg is installed and in your PATH or set FFMPEG_PATH.');
+                }
+                else {
+                    console.log('Using ffmpeg binary at:', foundPath);
+                    const { exec } = require('child_process');
+                    exec(`"${foundPath}" -version`, (error, stdout, stderr) => {
+                        if (error) {
+                            console.error('Error running ffmpeg -version:', error);
+                        }
+                        else {
+                            console.log('ffmpeg -version output:\n', stdout);
+                        }
+                    });
+                }
+            });
+            // Convert to ogg/opus
+            yield new Promise((resolve, reject) => {
+                ffmpeg(newPath)
+                    .audioCodec('libopus')
+                    .format('ogg')
+                    .on('start', (cmd) => {
+                    console.log('ffmpeg command:', cmd);
+                })
+                    .on('end', () => {
+                    console.log('ffmpeg conversion finished:', oggPath);
+                    resolve();
+                })
+                    .on('error', (err) => {
+                    console.error('ffmpeg conversion error:', err);
+                    reject(err);
+                })
+                    .save(oggPath);
+            });
+        }
+        catch (err) {
+            console.error('ffmpeg conversion failed:', err);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to convert audio to WhatsApp-compatible format. Make sure ffmpeg is installed and available in your PATH, or set the correct ffmpeg path in server.ts.',
+                error: err instanceof Error ? err.message : String(err)
+            });
+        }
+        // --- Try sending as voice note (PTT) ---
+        const media = yield whatsapp_web_js_1.MessageMedia.fromFilePath(sendPath);
+        const client = yield (0, sendMessage_1.getWhatsAppClient)();
+        try {
+            yield client.sendMessage(chatId, media, { sendAudioAsVoice: true });
+        }
+        catch (err) {
+            console.error('sendAudioAsVoice failed, trying as normal audio:', err);
+            try {
+                yield client.sendMessage(chatId, media);
+            }
+            catch (err2) {
+                console.error('Sending as normal audio also failed:', err2);
+                return res.status(500).json({ success: false, message: 'Failed to send voice message (WhatsApp rejected the file)', error: err2 instanceof Error ? err2.message : String(err2) });
+            }
+        }
+        res.json({ success: true, message: 'Voice message sent!' });
+    }
+    catch (err) {
+        let errorMsg = 'Unknown error';
+        if (err instanceof Error)
+            errorMsg = err.message;
+        console.error('send-voice-message error:', err);
+        res.status(500).json({ success: false, message: 'Failed to send voice message', error: errorMsg });
     }
     return Promise.resolve();
 }));
