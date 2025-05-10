@@ -514,13 +514,45 @@ app.get('/chat-history', (req, res) => __awaiter(void 0, void 0, void 0, functio
         const chatId = phone + '@c.us';
         const chat = yield client.getChatById(chatId);
         const messages = yield chat.fetchMessages({ limit: 50 });
-        const formatted = messages.map(msg => ({
-            fromMe: msg.fromMe,
-            body: msg.body,
-            timestamp: msg.timestamp,
-            id: msg.id._serialized,
-            type: msg.type
-        }));
+        // For audio messages, fetch media and return as base64
+        const formatted = yield Promise.all(messages.map((msg) => __awaiter(void 0, void 0, void 0, function* () {
+            // Only check for 'audio' and 'ptt' types (not 'voice')
+            if (msg.type === 'audio' || msg.type === 'ptt') {
+                try {
+                    const media = yield msg.downloadMedia();
+                    if (media && media.data) {
+                        return {
+                            fromMe: msg.fromMe,
+                            body: '[Voice message]',
+                            timestamp: msg.timestamp,
+                            id: msg.id._serialized,
+                            type: msg.type,
+                            base64: media.data,
+                            mimetype: media.mimetype || 'audio/ogg'
+                        };
+                    }
+                }
+                catch (e) {
+                    // fallback to just show as text
+                }
+                return {
+                    fromMe: msg.fromMe,
+                    body: '[Voice message]',
+                    timestamp: msg.timestamp,
+                    id: msg.id._serialized,
+                    type: msg.type
+                };
+            }
+            else {
+                return {
+                    fromMe: msg.fromMe,
+                    body: msg.body,
+                    timestamp: msg.timestamp,
+                    id: msg.id._serialized,
+                    type: msg.type
+                };
+            }
+        })));
         res.json({ messages: formatted });
     }
     catch (err) {

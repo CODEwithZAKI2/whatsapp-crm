@@ -708,7 +708,7 @@ app.get('/chat-history', function (req, res) { return __awaiter(void 0, void 0, 
                 }
                 _a.label = 1;
             case 1:
-                _a.trys.push([1, 5, , 6]);
+                _a.trys.push([1, 6, , 7]);
                 return [4 /*yield*/, (0, sendMessage_1.getWhatsAppClient)()];
             case 2:
                 client = _a.sent();
@@ -719,21 +719,60 @@ app.get('/chat-history', function (req, res) { return __awaiter(void 0, void 0, 
                 return [4 /*yield*/, chat.fetchMessages({ limit: 50 })];
             case 4:
                 messages = _a.sent();
-                formatted = messages.map(function (msg) { return ({
-                    fromMe: msg.fromMe,
-                    body: msg.body,
-                    timestamp: msg.timestamp,
-                    id: msg.id._serialized,
-                    type: msg.type
-                }); });
-                res.json({ messages: formatted });
-                return [3 /*break*/, 6];
+                return [4 /*yield*/, Promise.all(messages.map(function (msg) { return __awaiter(void 0, void 0, void 0, function () {
+                        var media, e_1;
+                        return __generator(this, function (_a) {
+                            switch (_a.label) {
+                                case 0:
+                                    if (!(msg.type === 'audio' || msg.type === 'ptt')) return [3 /*break*/, 5];
+                                    _a.label = 1;
+                                case 1:
+                                    _a.trys.push([1, 3, , 4]);
+                                    return [4 /*yield*/, msg.downloadMedia()];
+                                case 2:
+                                    media = _a.sent();
+                                    if (media && media.data) {
+                                        return [2 /*return*/, {
+                                                fromMe: msg.fromMe,
+                                                body: '[Voice message]',
+                                                timestamp: msg.timestamp,
+                                                id: msg.id._serialized,
+                                                type: msg.type,
+                                                base64: media.data,
+                                                mimetype: media.mimetype || 'audio/ogg'
+                                            }];
+                                    }
+                                    return [3 /*break*/, 4];
+                                case 3:
+                                    e_1 = _a.sent();
+                                    return [3 /*break*/, 4];
+                                case 4: return [2 /*return*/, {
+                                        fromMe: msg.fromMe,
+                                        body: '[Voice message]',
+                                        timestamp: msg.timestamp,
+                                        id: msg.id._serialized,
+                                        type: msg.type
+                                    }];
+                                case 5: return [2 /*return*/, {
+                                        fromMe: msg.fromMe,
+                                        body: msg.body,
+                                        timestamp: msg.timestamp,
+                                        id: msg.id._serialized,
+                                        type: msg.type
+                                    }];
+                            }
+                        });
+                    }); }))];
             case 5:
+                formatted = _a.sent();
+                res.json({ messages: formatted });
+                return [3 /*break*/, 7];
+            case 6:
                 err_10 = _a.sent();
                 console.error('Error fetching chat history:', err_10);
                 res.json({ messages: [] });
-                return [3 /*break*/, 6];
-            case 6: return [2 /*return*/, Promise.resolve()];
+                return [3 /*break*/, 7];
+            case 7: return [2 /*return*/, Promise.resolve()];
         }
     });
 }); });

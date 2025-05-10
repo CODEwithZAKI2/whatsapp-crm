@@ -71,8 +71,22 @@
             messages.forEach(msg => {
                 const msgDiv = document.createElement('div');
                 msgDiv.className = 'chat-message ' + (msg.fromMe ? 'me' : 'client');
+                // Render voice messages as audio player, others as text
+                let bodyHtml = '';
+                if (msg.type === 'audio' || msg.type === 'ptt' || msg.type === 'voice') {
+                    // If msg has a mediaUrl or base64, use it, else show a placeholder
+                    if (msg.mediaUrl) {
+                        bodyHtml = `<audio controls src="${msg.mediaUrl}"></audio>`;
+                    } else if (msg.base64) {
+                        bodyHtml = `<audio controls src="data:audio/ogg;base64,${msg.base64}"></audio>`;
+                    } else {
+                        bodyHtml = `<span style="color:#888;">[Voice message]</span>`;
+                    }
+                } else {
+                    bodyHtml = msg.body;
+                }
                 msgDiv.innerHTML = `
-                    <div class="msg-body">${msg.body}</div>
+                    <div class="msg-body">${bodyHtml}</div>
                     <div class="msg-meta">${new Date(msg.timestamp * 1000).toLocaleString()}</div>
                 `;
                 chatDiv.appendChild(msgDiv);
@@ -315,3 +329,4 @@
     </script>
 </body>
 </html>
+``` 

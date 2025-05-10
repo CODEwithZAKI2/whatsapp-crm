@@ -535,12 +535,42 @@ app.get('/chat-history', async (req, res): Promise<any> => {
         const chatId = phone + '@c.us';
         const chat = await client.getChatById(chatId);
         const messages = await chat.fetchMessages({ limit: 50 });
-        const formatted = messages.map(msg => ({
-            fromMe: msg.fromMe,
-            body: msg.body,
-            timestamp: msg.timestamp,
-            id: msg.id._serialized,
-            type: msg.type
+        // For audio messages, fetch media and return as base64
+        const formatted = await Promise.all(messages.map(async msg => {
+            // Only check for 'audio' and 'ptt' types (not 'voice')
+            if (msg.type === 'audio' || msg.type === 'ptt') {
+                try {
+                    const media = await msg.downloadMedia();
+                    if (media && media.data) {
+                        return {
+                            fromMe: msg.fromMe,
+                            body: '[Voice message]',
+                            timestamp: msg.timestamp,
+                            id: msg.id._serialized,
+                            type: msg.type,
+                            base64: media.data,
+                            mimetype: media.mimetype || 'audio/ogg'
+                        };
+                    }
+                } catch (e) {
+                    // fallback to just show as text
+                }
+                return {
+                    fromMe: msg.fromMe,
+                    body: '[Voice message]',
+                    timestamp: msg.timestamp,
+                    id: msg.id._serialized,
+                    type: msg.type
+                };
+            } else {
+                return {
+                    fromMe: msg.fromMe,
+                    body: msg.body,
+                    timestamp: msg.timestamp,
+                    id: msg.id._serialized,
+                    type: msg.type
+                };
+            }
         }));
         res.json({ messages: formatted });
     } catch (err) {
