@@ -86,7 +86,7 @@ npx tsc
 ### 5. Start the Backend Server
 
 ```sh
-node dist/server.js
+node server.js
 ```
 
 - On first run, scan the QR code with WhatsApp on your phone (shown in the backend logs).
