@@ -1,18 +1,19 @@
 # WhatsApp CRM Automation
 
-A Node.js/TypeScript CLI tool to automate personalized WhatsApp messaging to clients, with human-like scheduling, opt-in/out support, and anti-ban safety features.
+A Node.js/TypeScript web app to automate personalized WhatsApp messaging to clients, with human-like scheduling, opt-in/out support, attachments, and anti-ban safety features.
 
 ---
 
 ## Features
 
-- **Send personalized WhatsApp messages** to clients from a CSV file.
+- **Web-based UI** for sending and viewing WhatsApp messages, attachments, and chat history.
+- **Send personalized WhatsApp messages** to clients from a database or CSV.
+- **Send attachments** (images, PDF files) and voice messages directly from the UI.
 - **Message templates** with variable substitution (e.g., `{{name}}`).
 - **Humanized scheduler**: random delays between messages and batches to mimic human behavior.
 - **Daily sending limit** and batch pausing to avoid WhatsApp bans.
 - **Opt-in/out support** for clients.
 - **Persistent sent log** to avoid duplicate messaging.
-- **Interactive CLI menu** for manual or automated sending.
 - **Stats and logs** for sent and failed messages.
 
 ---
@@ -24,7 +25,7 @@ whatsapp-crm/
 │
 ├── backend/
 │   ├── csvUtils.ts         # CSV loading and parsing logic
-│   ├── scheduler.ts        # (Optional) Scheduler logic
+│   ├── scheduler.ts        # Scheduler logic
 │   ├── templateEngine.ts   # Message template logic
 │   └── types.ts            # TypeScript types
 │
@@ -33,9 +34,13 @@ whatsapp-crm/
 │   ├── templates.csv       # Message templates (id, text)
 │   └── sentLog.json        # Persistent log of sent messages
 │
+├── backend/voices/         # Uploaded voice messages
+├── backend/attachments/    # Uploaded attachments (images, PDFs)
+├── ui/                     # Frontend UI (HTML, CSS, JS)
+│   ├── client_messages.html # Chat UI for client conversations
+│   └── index.html           # Main dashboard UI
 ├── dist/                   # Compiled JS output
-│
-├── sendMessages.ts         # Main CLI entry point
+├── server.ts               # Main backend server (Express)
 ├── package.json
 ├── tsconfig.json
 └── README.md
@@ -43,53 +48,13 @@ whatsapp-crm/
 
 ---
 
-## How It Works
-
-### 1. Data Loading
-
-- **Clients** are loaded from clients.csv. Each client has an `id`, `name`, `phone`, and optional `optIn` field.
-- **Templates** are loaded from templates.csv. Each template has an `id` and `text` (with variables like `{{name}}`).
-- **Sent log** is loaded from sentLog.json to track which clients have already been messaged.
-
-### 2. WhatsApp Connection
-
-- Uses `whatsapp-web.js` to connect to WhatsApp Web.
-- On first run, scan the QR code with your WhatsApp mobile app.
-
-### 3. CLI Menu
-
-- **Show Clients**: View all loaded clients.
-- **Show Templates**: View all message templates.
-- **Show Sent Messages**: View the log of sent messages.
-- **Show Stats**: See total, sent, and error counts.
-- **Send Next Message**: Manually send to the next eligible client.
-- **Start Scheduler**: Automatically send to all eligible clients with humanized delays.
-- **Exit**: Save logs and exit.
-
-### 4. Sending Logic
-
-- Only sends to clients who:
-  - Are opted in (`optIn !== false`)
-  - Have a valid phone number
-  - Have **not** already received a message (checked via `sentLog.json`)
-- Messages are personalized using the template and client data.
-- After each send, the log is updated immediately.
-
-### 5. Scheduler
-
-- Sends messages with a **random delay (2–5 minutes)** between each.
-- After every 10 messages, waits a **random 40–60 minutes**.
-- Stops for the day after reaching the **daily limit** (default: 30).
-- All timings are randomized to mimic human behavior and avoid bans.
-
----
-
-## How to Run
+## How to Use
 
 ### 1. Prerequisites
 
 - Node.js v18 or later
 - WhatsApp account (with WhatsApp Web access)
+- [ffmpeg](https://ffmpeg.org/) installed and available in your system PATH (for voice messages)
 
 ### 2. Install Dependencies
 
@@ -99,13 +64,13 @@ npm install
 
 ### 3. Prepare Your Data
 
-- Edit clients.csv with your client list:
+- Edit `data/clients.csv` with your client list:
   ```
   id,name,phone,optIn
   1,John Doe,1234567890,true
   2,Jane Smith,9876543210,true
   ```
-- Edit templates.csv with your message templates:
+- Edit `data/templates.csv` with your message templates:
   ```
   id,text
   t1,"Hello {{name}}, this is a test message."
@@ -118,14 +83,46 @@ npm install
 npx tsc
 ```
 
-### 5. Start the App
+### 5. Start the Backend Server
 
 ```sh
-node dist/sendMessages.js
+node dist/server.js
 ```
 
-- Scan the QR code with WhatsApp on your phone.
-- Use the menu to send messages or start the scheduler.
+- On first run, scan the QR code with WhatsApp on your phone (shown in the backend logs).
+
+### 6. Open the Web UI
+
+- Go to [http://localhost:3000/](http://localhost:3000/) in your browser.
+
+---
+
+## Web UI Overview
+
+- **Send Message Tab**: Select a client and template, then send a WhatsApp message.
+- **Scheduler Tab**: Start/stop the scheduler to send messages automatically with human-like delays.
+- **Clients Tab**: View, add, edit, or delete clients.
+- **Templates Tab**: View, add, edit, or delete message templates.
+- **Sent Log Tab**: View the log of sent messages, filter by status, and search.
+
+### Chat UI (`/ui/client_messages.html`)
+
+- View chat history with a client, including:
+  - **Text messages**
+  - **Voice messages** (playable audio)
+  - **Image attachments** (displayed inline)
+  - **PDF and file attachments** (downloadable links)
+- **Send text, voice, image, or PDF messages** directly from the chat UI.
+- **Record and send voice messages** using your browser's microphone.
+- **Send attachments** (images, PDFs) using the 📁 button.
+
+---
+
+## Sending Attachments & Voice Messages
+
+- **To send an image or PDF**: Click the 📁 button, select a file, and (optionally) add a caption.
+- **To send a voice message**: Click the 🎙️ button to start/stop recording, then send.
+- **All attachments and voice messages** are sent via WhatsApp and shown in the chat history.
 
 ---
 
@@ -139,19 +136,20 @@ node dist/sendMessages.js
 
 ---
 
-## Customization
-
-- **Change daily limit**: Edit the `DAILY_LIMIT` constant in sendMessages.ts.
-- **Adjust delays**: Modify the random delay logic in the scheduler.
-- **Add more templates**: Increase variety for better safety.
-
----
-
 ## Troubleshooting
 
 - **No eligible clients**: Check `sentLog.json` and `optIn` status in `clients.csv`.
 - **CSV errors**: Ensure all fields with commas are quoted.
 - **WhatsApp not connecting**: Make sure you scan the QR code and your phone stays online.
+- **Voice/attachment errors**: Ensure `ffmpeg` is installed and in your PATH.
+
+---
+
+## Customization
+
+- **Change daily limit**: Edit the `DAILY_LIMIT` constant in the scheduler.
+- **Adjust delays**: Modify the random delay logic in the scheduler.
+- **Add more templates**: Increase variety for better safety.
 
 ---
 
