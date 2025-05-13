@@ -402,6 +402,73 @@ app.post('/send-voice-message', upload.single('voice'), async (req: Request & { 
     return Promise.resolve();
 });
 
+// --- SEND ATTACHMENT (PDF or IMAGE) ---
+const attachmentsDir = path.join(__dirname, 'backend', 'attachments');
+if (!fs.existsSync(attachmentsDir)) fs.mkdirSync(attachmentsDir, { recursive: true });
+const attachmentUpload = multer({ dest: attachmentsDir });
+
+app.post('/send-attachment', attachmentUpload.single('attachment'), async (req: Request & { file?: Express.Multer.File }, res): Promise<any> => {
+    try {
+        const { phonenumber, clientId, caption } = req.body;
+        let phone = phonenumber;
+        if (!phone && clientId) {
+            const [rows]: any = await pool.query('SELECT contact_numbers FROM persons WHERE id = ?', [clientId]);
+            if (Array.isArray(rows) && rows.length > 0) {
+                try {
+                    const numbers = JSON.parse(rows[0].contact_numbers);
+                    if (Array.isArray(numbers) && numbers.length > 0 && numbers[0].value) {
+                        phone = numbers[0].value;
+                    }
+                } catch {}
+            }
+        }
+        if (!phone) return res.status(400).json({ success: false, message: 'No phone number found' });
+        const chatId = phone + '@c.us';
+
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: 'No attachment uploaded' });
+        }
+
+        // Only allow images and pdfs
+        const allowedMime = [
+            'application/pdf',
+            'image/png',
+            'image/jpeg',
+            'image/jpg',
+            'image/gif',
+            'image/webp'
+        ];
+        if (!allowedMime.includes(req.file.mimetype)) {
+            fs.unlinkSync(req.file.path);
+            return res.status(400).json({ success: false, message: 'Unsupported file type' });
+        }
+
+        // Add extension for correct file type
+        let ext = '';
+        if (req.file.mimetype === 'application/pdf') ext = '.pdf';
+        else if (req.file.mimetype === 'image/png') ext = '.png';
+        else if (req.file.mimetype === 'image/jpeg' || req.file.mimetype === 'image/jpg') ext = '.jpg';
+        else if (req.file.mimetype === 'image/gif') ext = '.gif';
+        else if (req.file.mimetype === 'image/webp') ext = '.webp';
+        else ext = path.extname(req.file.originalname);
+
+        const newPath = req.file.path + ext;
+        fs.renameSync(req.file.path, newPath);
+
+        const media = await MessageMedia.fromFilePath(newPath);
+        const client = await getWhatsAppClient();
+        await client.sendMessage(chatId, media, caption ? { caption } : undefined);
+
+        res.json({ success: true, message: 'Attachment sent!' });
+    } catch (err: unknown) {
+        let errorMsg = 'Unknown error';
+        if (err instanceof Error) errorMsg = err.message;
+        console.error('send-attachment error:', err);
+        res.status(500).json({ success: false, message: 'Failed to send attachment', error: errorMsg });
+    }
+    return Promise.resolve();
+});
+
 // --- SENT LOG ENDPOINT ---
 app.get('/sent-log', (req, res): Promise<any> => {
     const sentLogPath = path.resolve(__dirname, 'data', 'sentLog.json');
@@ -531,13 +598,11 @@ app.get('/chat-history', async (req, res): Promise<any> => {
     }
     try {
         const client = await getWhatsAppClient();
-        // WhatsApp format: phone + '@c.us'
         const chatId = phone + '@c.us';
         const chat = await client.getChatById(chatId);
         const messages = await chat.fetchMessages({ limit: 50 });
-        // For audio messages, fetch media and return as base64
         const formatted = await Promise.all(messages.map(async msg => {
-            // Only check for 'audio' and 'ptt' types (not 'voice')
+            // Voice messages
             if (msg.type === 'audio' || msg.type === 'ptt') {
                 try {
                     const media = await msg.downloadMedia();
@@ -552,9 +617,7 @@ app.get('/chat-history', async (req, res): Promise<any> => {
                             mimetype: media.mimetype || 'audio/ogg'
                         };
                     }
-                } catch (e) {
-                    // fallback to just show as text
-                }
+                } catch {}
                 return {
                     fromMe: msg.fromMe,
                     body: '[Voice message]',
@@ -562,7 +625,75 @@ app.get('/chat-history', async (req, res): Promise<any> => {
                     id: msg.id._serialized,
                     type: msg.type
                 };
-            } else {
+            }
+            // Image attachments
+            else if (msg.type === 'image') {
+                try {
+                    const media = await msg.downloadMedia();
+                    // @ts-ignore: WhatsApp web.js Message type may have caption
+                    const caption = (msg as any).caption || '';
+                    if (media && media.data) {
+                        return {
+                            fromMe: msg.fromMe,
+                            body: '[Image]',
+                            timestamp: msg.timestamp,
+                            id: msg.id._serialized,
+                            type: msg.type,
+                            base64: media.data,
+                            mimetype: media.mimetype || 'image/jpeg',
+                            caption
+                        };
+                    }
+                } catch {}
+                // @ts-ignore
+                const caption = (msg as any).caption || '';
+                return {
+                    fromMe: msg.fromMe,
+                    body: '[Image]',
+                    timestamp: msg.timestamp,
+                    id: msg.id._serialized,
+                    type: msg.type,
+                    caption
+                };
+            }
+            // Document attachments (e.g. PDF)
+            else if (msg.type === 'document') {
+                try {
+                    const media = await msg.downloadMedia();
+                    // @ts-ignore: WhatsApp web.js Message type may have filename/caption
+                    const filename = (msg as any).filename || 'file';
+                    // @ts-ignore
+                    const caption = (msg as any).caption || '';
+                    if (media && media.data) {
+                        return {
+                            fromMe: msg.fromMe,
+                            body: '[Document]',
+                            timestamp: msg.timestamp,
+                            id: msg.id._serialized,
+                            type: msg.type,
+                            base64: media.data,
+                            mimetype: media.mimetype || 'application/pdf',
+                            filename,
+                            caption
+                        };
+                    }
+                } catch {}
+                // @ts-ignore
+                const filename = (msg as any).filename || 'file';
+                // @ts-ignore
+                const caption = (msg as any).caption || '';
+                return {
+                    fromMe: msg.fromMe,
+                    body: '[Document]',
+                    timestamp: msg.timestamp,
+                    id: msg.id._serialized,
+                    type: msg.type,
+                    filename,
+                    caption
+                };
+            }
+            // Fallback: text and other types
+            else {
                 return {
                     fromMe: msg.fromMe,
                     body: msg.body,

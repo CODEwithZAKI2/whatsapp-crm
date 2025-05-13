@@ -528,6 +528,90 @@ app.post('/send-voice-message', upload.single('voice'), function (req, res) { re
         }
     });
 }); });
+// --- SEND ATTACHMENT (PDF or IMAGE) ---
+var attachmentsDir = path.join(__dirname, 'backend', 'attachments');
+if (!fs.existsSync(attachmentsDir))
+    fs.mkdirSync(attachmentsDir, { recursive: true });
+var attachmentUpload = multer({ dest: attachmentsDir });
+app.post('/send-attachment', attachmentUpload.single('attachment'), function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
+    var _a, phonenumber, clientId, caption, phone, rows, numbers, chatId, allowedMime, ext, newPath, media, client, err_8, errorMsg;
+    return __generator(this, function (_b) {
+        switch (_b.label) {
+            case 0:
+                _b.trys.push([0, 6, , 7]);
+                _a = req.body, phonenumber = _a.phonenumber, clientId = _a.clientId, caption = _a.caption;
+                phone = phonenumber;
+                if (!(!phone && clientId)) return [3 /*break*/, 2];
+                return [4 /*yield*/, db_1.pool.query('SELECT contact_numbers FROM persons WHERE id = ?', [clientId])];
+            case 1:
+                rows = (_b.sent())[0];
+                if (Array.isArray(rows) && rows.length > 0) {
+                    try {
+                        numbers = JSON.parse(rows[0].contact_numbers);
+                        if (Array.isArray(numbers) && numbers.length > 0 && numbers[0].value) {
+                            phone = numbers[0].value;
+                        }
+                    }
+                    catch (_c) { }
+                }
+                _b.label = 2;
+            case 2:
+                if (!phone)
+                    return [2 /*return*/, res.status(400).json({ success: false, message: 'No phone number found' })];
+                chatId = phone + '@c.us';
+                if (!req.file) {
+                    return [2 /*return*/, res.status(400).json({ success: false, message: 'No attachment uploaded' })];
+                }
+                allowedMime = [
+                    'application/pdf',
+                    'image/png',
+                    'image/jpeg',
+                    'image/jpg',
+                    'image/gif',
+                    'image/webp'
+                ];
+                if (!allowedMime.includes(req.file.mimetype)) {
+                    fs.unlinkSync(req.file.path);
+                    return [2 /*return*/, res.status(400).json({ success: false, message: 'Unsupported file type' })];
+                }
+                ext = '';
+                if (req.file.mimetype === 'application/pdf')
+                    ext = '.pdf';
+                else if (req.file.mimetype === 'image/png')
+                    ext = '.png';
+                else if (req.file.mimetype === 'image/jpeg' || req.file.mimetype === 'image/jpg')
+                    ext = '.jpg';
+                else if (req.file.mimetype === 'image/gif')
+                    ext = '.gif';
+                else if (req.file.mimetype === 'image/webp')
+                    ext = '.webp';
+                else
+                    ext = path.extname(req.file.originalname);
+                newPath = req.file.path + ext;
+                fs.renameSync(req.file.path, newPath);
+                return [4 /*yield*/, whatsapp_web_js_1.MessageMedia.fromFilePath(newPath)];
+            case 3:
+                media = _b.sent();
+                return [4 /*yield*/, (0, sendMessage_1.getWhatsAppClient)()];
+            case 4:
+                client = _b.sent();
+                return [4 /*yield*/, client.sendMessage(chatId, media, caption ? { caption: caption } : undefined)];
+            case 5:
+                _b.sent();
+                res.json({ success: true, message: 'Attachment sent!' });
+                return [3 /*break*/, 7];
+            case 6:
+                err_8 = _b.sent();
+                errorMsg = 'Unknown error';
+                if (err_8 instanceof Error)
+                    errorMsg = err_8.message;
+                console.error('send-attachment error:', err_8);
+                res.status(500).json({ success: false, message: 'Failed to send attachment', error: errorMsg });
+                return [3 /*break*/, 7];
+            case 7: return [2 /*return*/, Promise.resolve()];
+        }
+    });
+}); });
 // --- SENT LOG ENDPOINT ---
 app.get('/sent-log', function (req, res) {
     var sentLogPath = path.resolve(__dirname, 'data', 'sentLog.json');
@@ -558,7 +642,7 @@ app.post('/start-scheduler', function (req, res) { return __awaiter(void 0, void
         templates = (0, csvUtils_1.loadTemplatesFromCSV)(TEMPLATES_CSV);
         scheduler = new scheduler_1.SafeScheduler(clients, templates, true);
         scheduler.sendFunction = function (clientObj, template, msg) { return __awaiter(void 0, void 0, void 0, function () {
-            var err_8;
+            var err_9;
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
@@ -569,9 +653,9 @@ app.post('/start-scheduler', function (req, res) { return __awaiter(void 0, void
                         console.log("Scheduler: Message sent to client ".concat(clientObj.id, " using template ").concat(template.id));
                         return [3 /*break*/, 3];
                     case 2:
-                        err_8 = _a.sent();
-                        console.error("Scheduler: Failed to send message to client ".concat(clientObj.id, ":"), err_8);
-                        throw err_8;
+                        err_9 = _a.sent();
+                        console.error("Scheduler: Failed to send message to client ".concat(clientObj.id, ":"), err_9);
+                        throw err_9;
                     case 3: return [2 /*return*/];
                 }
             });
@@ -633,7 +717,7 @@ app.get('/scheduler-status', function (req, res) { return __awaiter(void 0, void
 }); });
 // --- MESSAGES FROM OPEN CHATS ---
 app.get('/current-messages', function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
-    var client, chats, allMessages_1, _loop_1, _i, chats_1, chat, err_9, errorMsg;
+    var client, chats, allMessages_1, _loop_1, _i, chats_1, chat, err_10, errorMsg;
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0:
@@ -685,10 +769,10 @@ app.get('/current-messages', function (req, res) { return __awaiter(void 0, void
                 res.json({ messages: allMessages_1 });
                 return [3 /*break*/, 8];
             case 7:
-                err_9 = _a.sent();
+                err_10 = _a.sent();
                 errorMsg = 'Unknown error';
-                if (err_9 instanceof Error)
-                    errorMsg = err_9.message;
+                if (err_10 instanceof Error)
+                    errorMsg = err_10.message;
                 res.status(500).json({ messages: [], error: errorMsg });
                 return [3 /*break*/, 8];
             case 8: return [2 /*return*/, Promise.resolve()];
@@ -697,7 +781,7 @@ app.get('/current-messages', function (req, res) { return __awaiter(void 0, void
 }); });
 // --- CHAT HISTORY ENDPOINT ---
 app.get('/chat-history', function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
-    var phone, client, chatId, chat, messages, formatted, err_10;
+    var phone, client, chatId, chat, messages, formatted, err_11;
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0:
@@ -720,17 +804,17 @@ app.get('/chat-history', function (req, res) { return __awaiter(void 0, void 0, 
             case 4:
                 messages = _a.sent();
                 return [4 /*yield*/, Promise.all(messages.map(function (msg) { return __awaiter(void 0, void 0, void 0, function () {
-                        var media, e_1;
-                        return __generator(this, function (_a) {
-                            switch (_a.label) {
+                        var media, _a, media, caption_1, _b, caption, media, filename_1, caption_2, _c, filename, caption;
+                        return __generator(this, function (_d) {
+                            switch (_d.label) {
                                 case 0:
                                     if (!(msg.type === 'audio' || msg.type === 'ptt')) return [3 /*break*/, 5];
-                                    _a.label = 1;
+                                    _d.label = 1;
                                 case 1:
-                                    _a.trys.push([1, 3, , 4]);
+                                    _d.trys.push([1, 3, , 4]);
                                     return [4 /*yield*/, msg.downloadMedia()];
                                 case 2:
-                                    media = _a.sent();
+                                    media = _d.sent();
                                     if (media && media.data) {
                                         return [2 /*return*/, {
                                                 fromMe: msg.fromMe,
@@ -744,7 +828,7 @@ app.get('/chat-history', function (req, res) { return __awaiter(void 0, void 0, 
                                     }
                                     return [3 /*break*/, 4];
                                 case 3:
-                                    e_1 = _a.sent();
+                                    _a = _d.sent();
                                     return [3 /*break*/, 4];
                                 case 4: return [2 /*return*/, {
                                         fromMe: msg.fromMe,
@@ -753,7 +837,81 @@ app.get('/chat-history', function (req, res) { return __awaiter(void 0, void 0, 
                                         id: msg.id._serialized,
                                         type: msg.type
                                     }];
-                                case 5: return [2 /*return*/, {
+                                case 5:
+                                    if (!(msg.type === 'image')) return [3 /*break*/, 10];
+                                    _d.label = 6;
+                                case 6:
+                                    _d.trys.push([6, 8, , 9]);
+                                    return [4 /*yield*/, msg.downloadMedia()];
+                                case 7:
+                                    media = _d.sent();
+                                    caption_1 = msg.caption || '';
+                                    if (media && media.data) {
+                                        return [2 /*return*/, {
+                                                fromMe: msg.fromMe,
+                                                body: '[Image]',
+                                                timestamp: msg.timestamp,
+                                                id: msg.id._serialized,
+                                                type: msg.type,
+                                                base64: media.data,
+                                                mimetype: media.mimetype || 'image/jpeg',
+                                                caption: caption_1
+                                            }];
+                                    }
+                                    return [3 /*break*/, 9];
+                                case 8:
+                                    _b = _d.sent();
+                                    return [3 /*break*/, 9];
+                                case 9:
+                                    caption = msg.caption || '';
+                                    return [2 /*return*/, {
+                                            fromMe: msg.fromMe,
+                                            body: '[Image]',
+                                            timestamp: msg.timestamp,
+                                            id: msg.id._serialized,
+                                            type: msg.type,
+                                            caption: caption
+                                        }];
+                                case 10:
+                                    if (!(msg.type === 'document')) return [3 /*break*/, 15];
+                                    _d.label = 11;
+                                case 11:
+                                    _d.trys.push([11, 13, , 14]);
+                                    return [4 /*yield*/, msg.downloadMedia()];
+                                case 12:
+                                    media = _d.sent();
+                                    filename_1 = msg.filename || 'file';
+                                    caption_2 = msg.caption || '';
+                                    if (media && media.data) {
+                                        return [2 /*return*/, {
+                                                fromMe: msg.fromMe,
+                                                body: '[Document]',
+                                                timestamp: msg.timestamp,
+                                                id: msg.id._serialized,
+                                                type: msg.type,
+                                                base64: media.data,
+                                                mimetype: media.mimetype || 'application/pdf',
+                                                filename: filename_1,
+                                                caption: caption_2
+                                            }];
+                                    }
+                                    return [3 /*break*/, 14];
+                                case 13:
+                                    _c = _d.sent();
+                                    return [3 /*break*/, 14];
+                                case 14:
+                                    filename = msg.filename || 'file';
+                                    caption = msg.caption || '';
+                                    return [2 /*return*/, {
+                                            fromMe: msg.fromMe,
+                                            body: '[Document]',
+                                            timestamp: msg.timestamp,
+                                            id: msg.id._serialized,
+                                            type: msg.type,
+                                            filename: filename,
+                                            caption: caption
+                                        }];
+                                case 15: return [2 /*return*/, {
                                         fromMe: msg.fromMe,
                                         body: msg.body,
                                         timestamp: msg.timestamp,
@@ -768,8 +926,8 @@ app.get('/chat-history', function (req, res) { return __awaiter(void 0, void 0, 
                 res.json({ messages: formatted });
                 return [3 /*break*/, 7];
             case 6:
-                err_10 = _a.sent();
-                console.error('Error fetching chat history:', err_10);
+                err_11 = _a.sent();
+                console.error('Error fetching chat history:', err_11);
                 res.json({ messages: [] });
                 return [3 /*break*/, 7];
             case 7: return [2 /*return*/, Promise.resolve()];

@@ -16,6 +16,10 @@
         <div id="chatHistory" class="chat-history"></div>
         <form id="sendMessageForm" class="chat-input-row" style="display:flex;gap:8px;padding:12px 18px 18px 18px;align-items:center;">
             <input type="text" id="messageInput" placeholder="Type your message..." autocomplete="off" style="flex:1;padding:10px;border-radius:18px;border:1px solid #d1d5db;font-size:15px;">
+            <input type="file" id="attachmentInput" accept="image/*,application/pdf" style="display:none;">
+            <button type="button" id="attachBtn" style="padding:10px 14px;border-radius:18px;background:#352703;color:#fff;border:none;font-weight:bold;cursor:pointer;" title="Send Attachment">
+                <span id="attachIcon">📁</span>
+            </button>
             <button type="button" id="recordBtn" style="padding:10px 14px;border-radius:18px;background:#c2cfec;color:#fff;border:none;font-weight:bold;cursor:pointer;margin-right:4px;" title="Record Voice">
                 <span id="micIcon">🎙️</span>
             </button>
@@ -71,16 +75,28 @@
             messages.forEach(msg => {
                 const msgDiv = document.createElement('div');
                 msgDiv.className = 'chat-message ' + (msg.fromMe ? 'me' : 'client');
-                // Render voice messages as audio player, others as text
+                // Render voice messages, attachments, or text
                 let bodyHtml = '';
                 if (msg.type === 'audio' || msg.type === 'ptt' || msg.type === 'voice') {
-                    // If msg has a mediaUrl or base64, use it, else show a placeholder
                     if (msg.mediaUrl) {
                         bodyHtml = `<audio controls src="${msg.mediaUrl}"></audio>`;
                     } else if (msg.base64) {
                         bodyHtml = `<audio controls src="data:audio/ogg;base64,${msg.base64}"></audio>`;
                     } else {
                         bodyHtml = `<span style="color:#888;">[Voice message]</span>`;
+                    }
+                } else if (msg.type === 'image' && msg.base64) {
+                    // Show image attachment
+                    bodyHtml = `<img src="data:${msg.mimetype || 'image/jpeg'};base64,${msg.base64}" alt="Image" style="max-width:220px;max-height:220px;border-radius:8px;box-shadow:0 2px 8px #0002;">`;
+                    if (msg.caption) {
+                        bodyHtml += `<div style="margin-top:4px;font-size:13px;color:#333;">${msg.caption}</div>`;
+                    }
+                } else if (msg.type === 'document' && msg.filename && msg.base64) {
+                    // Show document (e.g. PDF) as download link
+                    const mime = msg.mimetype || 'application/octet-stream';
+                    bodyHtml = `<a href="data:${mime};base64,${msg.base64}" download="${msg.filename}" target="_blank" style="color:#2563eb;text-decoration:underline;font-weight:bold;">📄 ${msg.filename}</a>`;
+                    if (msg.caption) {
+                        bodyHtml += `<div style="margin-top:4px;font-size:13px;color:#333;">${msg.caption}</div>`;
                     }
                 } else {
                     bodyHtml = msg.body;
@@ -228,6 +244,58 @@
             } catch (err) {
                 alert('Could not start recording: ' + (err.message || err));
             }
+        });
+
+        // --- Attachment Sending Logic ---
+        const attachBtn = document.getElementById('attachBtn');
+        const attachmentInput = document.getElementById('attachmentInput');
+        attachBtn.addEventListener('click', () => {
+            attachmentInput.value = '';
+            attachmentInput.click();
+        });
+        attachmentInput.addEventListener('change', async function () {
+            if (!attachmentInput.files || attachmentInput.files.length === 0) return;
+            const file = attachmentInput.files[0];
+            // Only allow images and pdfs
+            if (!/^image\//.test(file.type) && file.type !== 'application/pdf') {
+                alert('Only images and PDF files are allowed.');
+                return;
+            }
+            attachBtn.disabled = true;
+            attachBtn.style.opacity = '0.6';
+            try {
+                const params = getUrlParams();
+                const clientId = params.clientid;
+                const clientPhone = params.phonenumber;
+                const leadId = params.lead_id;
+                const userId = params.user_id;
+                const formData = new FormData();
+                formData.append('attachment', file, file.name);
+                formData.append('clientId', clientId);
+                formData.append('phonenumber', clientPhone);
+                // Optionally, add a caption from the input box
+                const caption = document.getElementById('messageInput').value.trim();
+                if (caption) formData.append('caption', caption);
+
+                const res = await fetch('/send-attachment', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await res.json();
+                if (result.success) {
+                    document.getElementById('messageInput').value = '';
+                    setTimeout(async () => {
+                        const messages = await fetchChatHistory(clientPhone);
+                        renderChat(messages, clientPhone, true);
+                    }, 1200);
+                } else {
+                    alert('Failed to send attachment: ' + (result.message || result.error || 'Unknown error'));
+                }
+            } catch (err) {
+                alert('Attachment upload failed: ' + (err.message || err));
+            }
+            attachBtn.disabled = false;
+            attachBtn.style.opacity = '';
         });
 
         // Realtime chat polling using Socket.IO
