@@ -108,9 +108,43 @@
                 chatDiv.appendChild(msgDiv);
             });
             chatDiv.scrollTop = chatDiv.scrollHeight;
-            // Play sound if new message arrived (and it's not the first load)
-            if (playSoundIfNew && messages.length && prevLastId && messages[messages.length - 1].id !== prevLastId) {
+            // Only play sound if the new message is NOT from me
+            if (
+                playSoundIfNew &&
+                messages.length &&
+                prevLastId &&
+                messages[messages.length - 1].id !== prevLastId &&
+                !messages[messages.length - 1].fromMe // Only play sound for incoming messages
+            ) {
                 playNewMessageSound();
+                // --- Save activity for new received message ---
+                const msg = messages[messages.length - 1];
+                const params = getUrlParams();
+                const userId = params.user_id;
+                const leadId = params.lead_id;
+                // Compose message for activity
+                let comment = '';
+                if (msg.type === 'audio' || msg.type === 'ptt' || msg.type === 'voice') {
+                    comment = '[Voice message]';
+                } else if (msg.type === 'image') {
+                    comment = '[Image]' + (msg.caption ? ' ' + msg.caption : '');
+                } else if (msg.type === 'document') {
+                    comment = '[Document]' + (msg.filename ? ' ' + msg.filename : '');
+                } else {
+                    comment = msg.body;
+                }
+                // Save activity via backend
+                if (userId && leadId) {
+                    fetch('/save-activity-receive', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            userId,
+                            leadId,
+                            comment
+                        })
+                    }).catch(() => {});
+                }
             }
             window.lastMessageId = messages.length ? messages[messages.length - 1].id : null;
         }

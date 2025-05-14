@@ -235,7 +235,7 @@ app.post('/send-message-activity', (req, res) => __awaiter(void 0, void 0, void 
         }
         const formattedNow = getChinaTimeString();
         console.log('[China Time for activity]:', formattedNow);
-        const [activityResult] = yield db_1.pool.query('INSERT INTO activities (user_id, title, comment, created_at, updated_at) VALUES (?, ?, ?, ?, ?)', [userId, 'Whatsapp', message, formattedNow, formattedNow]);
+        const [activityResult] = yield db_1.pool.query('INSERT INTO activities (user_id, title, comment, created_at, updated_at) VALUES (?, ?, ?, ?, ?)', [userId, 'Whatsapp: Sent message', message, formattedNow, formattedNow]);
         const activityId = activityResult.insertId;
         // Insert into lead_activities
         yield db_1.pool.query('INSERT INTO lead_activities (activity_id, lead_id) VALUES (?, ?)', [activityId, leadId]);
@@ -696,6 +696,44 @@ app.get('/chat-history', (req, res) => __awaiter(void 0, void 0, void 0, functio
     }
     return Promise.resolve();
 }));
+// Add endpoint to save activity for received message from frontend
+app.post('/save-activity-receive', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { userId, leadId, comment } = req.body;
+        if (!userId || !leadId || !comment) {
+            return res.status(400).json({ success: false, message: 'Missing userId, leadId, or comment' });
+        }
+        // Format China time
+        function getChinaTimeString() {
+            const now = new Date();
+            const formatter = new Intl.DateTimeFormat('en-CA', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false,
+                timeZone: 'Asia/Shanghai'
+            });
+            const parts = formatter.formatToParts(now).reduce((acc, part) => {
+                if (part.type !== 'literal')
+                    acc[part.type] = part.value;
+                return acc;
+            }, {});
+            return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+        }
+        const formattedNow = getChinaTimeString();
+        const [activityResult] = yield db_1.pool.query('INSERT INTO activities (user_id, title, comment, created_at, updated_at) VALUES (?, ?, ?, ?, ?)', [userId, 'Whatsapp: Recieve message', comment, formattedNow, formattedNow]);
+        const activityId = activityResult.insertId;
+        yield db_1.pool.query('INSERT INTO lead_activities (activity_id, lead_id) VALUES (?, ?)', [activityId, leadId]);
+        res.json({ success: true, activityId });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to save activity', error: err instanceof Error ? err.message : String(err) });
+    }
+    return Promise.resolve();
+}));
 // --- Log buffer and emit logic ---
 const server = http.createServer(app);
 const io = new socket_io_1.Server(server, { cors: { origin: "*" } });
@@ -720,7 +758,7 @@ io.on('connection', (socket) => {
     logBuffer.forEach(msg => socket.emit('backend-log', msg));
 });
 // Start server (use server.listen instead of app.listen)
-server.listen(PORT, () => {
+server.listen(PORT, () => __awaiter(void 0, void 0, void 0, function* () {
     console.log(`Server is running on http://localhost:${PORT}`);
     console.log(`Serving static files from: ${uiPath}`);
     console.log(`Looking for index.html at: ${indexPath}`);
@@ -730,4 +768,81 @@ server.listen(PORT, () => {
     else {
         console.log('index.html found!');
     }
-});
+    // --- Listen for incoming WhatsApp messages and log to activities ---
+    try {
+        const client = yield (0, sendMessage_1.getWhatsAppClient)();
+        client.on('message', (msg) => __awaiter(void 0, void 0, void 0, function* () {
+            try {
+                // Only log incoming messages (not fromMe)
+                if (msg.fromMe)
+                    return;
+                // Extract phone number (remove @c.us/@g.us)
+                let phone = msg.from;
+                if (phone.endsWith('@c.us'))
+                    phone = phone.replace('@c.us', '');
+                else if (phone.endsWith('@g.us'))
+                    return; // Ignore group messages
+                // Find person by phone in contact_numbers (search for value in JSON array)
+                const [personRows] = yield db_1.pool.query("SELECT id FROM persons WHERE JSON_SEARCH(contact_numbers, 'one', ?) IS NOT NULL", [phone]);
+                if (!Array.isArray(personRows) || personRows.length === 0) {
+                    console.warn(`[Activity] No person found for incoming message from ${phone}`);
+                    return;
+                }
+                // Find a user_id to associate (for demo, use 1 or first user)
+                let userId = 1;
+                try {
+                    const [userRows] = yield db_1.pool.query('SELECT id FROM users LIMIT 1');
+                    if (Array.isArray(userRows) && userRows.length > 0)
+                        userId = userRows[0].id;
+                }
+                catch (_a) { }
+                // Format China time
+                function getChinaTimeString() {
+                    const now = new Date();
+                    const formatter = new Intl.DateTimeFormat('en-CA', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: false,
+                        timeZone: 'Asia/Shanghai'
+                    });
+                    const parts = formatter.formatToParts(now).reduce((acc, part) => {
+                        if (part.type !== 'literal')
+                            acc[part.type] = part.value;
+                        return acc;
+                    }, {});
+                    return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+                }
+                const formattedNow = getChinaTimeString();
+                // Compose message body (text, or [Voice message], etc.)
+                let message = '';
+                if (msg.type === 'chat') {
+                    message = msg.body;
+                }
+                else if (msg.type === 'audio' || msg.type === 'ptt') {
+                    message = '[Voice message]';
+                }
+                else if (msg.type === 'image') {
+                    message = '[Image]' + (msg.caption ? ' ' + msg.caption : '');
+                }
+                else if (msg.type === 'document') {
+                    message = '[Document]' + (msg.filename ? ' ' + msg.filename : '');
+                }
+                else {
+                    message = `[${msg.type}]`;
+                }
+                yield db_1.pool.query('INSERT INTO activities (user_id, title, comment, created_at, updated_at) VALUES (?, ?, ?, ?, ?)', [userId, 'Whatsapp: Recieve message', message, formattedNow, formattedNow]);
+                console.log(`[Activity] Saved incoming message from ${phone} to activities table.`);
+            }
+            catch (err) {
+                console.error('[Activity] Failed to save incoming message to activities:', err);
+            }
+        }));
+    }
+    catch (err) {
+        console.error('Failed to set up WhatsApp message listener:', err);
+    }
+}));
