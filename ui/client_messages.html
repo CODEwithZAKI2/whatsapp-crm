@@ -20,6 +20,10 @@
             <button type="button" id="attachBtn" style="padding:10px 14px;border-radius:18px;background:#352703;color:#fff;border:none;font-weight:bold;cursor:pointer;" title="Send Attachment">
                 <span id="attachIcon">📁</span>
             </button>
+            <input type="file" id="voiceFileInput" accept="audio/*" style="display:none;">
+            <button type="button" id="uploadVoiceBtn" style="padding:10px 14px;border-radius:18px;background:#2563eb;color:#fff;border:none;font-weight:bold;cursor:pointer;" title="Upload Voice Audio">
+                <span id="uploadVoiceIcon">&#127911;</span>
+            </button>
             <button type="button" id="recordBtn" style="padding:10px 14px;border-radius:18px;background:#c2cfec;color:#fff;border:none;font-weight:bold;cursor:pointer;margin-right:4px;" title="Record Voice">
                 <span id="micIcon">🎙️</span>
             </button>
@@ -280,6 +284,57 @@
             }
         });
 
+        // --- Upload and Send Voice File Logic ---
+        const uploadVoiceBtn = document.getElementById('uploadVoiceBtn');
+        const voiceFileInput = document.getElementById('voiceFileInput');
+        uploadVoiceBtn.addEventListener('click', () => {
+            voiceFileInput.value = '';
+            voiceFileInput.click();
+        });
+        voiceFileInput.addEventListener('change', async function () {
+            if (!voiceFileInput.files || voiceFileInput.files.length === 0) return;
+            const file = voiceFileInput.files[0];
+            // Only allow audio files
+            if (!/^audio\//.test(file.type)) {
+                alert('Only audio files are allowed.');
+                return;
+            }
+            uploadVoiceBtn.disabled = true;
+            uploadVoiceBtn.style.opacity = '0.6';
+            try {
+                const params = getUrlParams();
+                const clientId = params.clientid;
+                const clientPhone = params.phonenumber;
+                const leadId = params.lead_id;
+                const userId = params.user_id;
+                const formData = new FormData();
+                formData.append('voice', file, file.name);
+                formData.append('clientId', clientId);
+                formData.append('phonenumber', clientPhone);
+                formData.append('leadId', leadId);
+                formData.append('userId', userId);
+                formData.append('convert', 'true'); // tell backend to convert
+
+                const res = await fetch('/send-voice-message', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await res.json();
+                if (result.success) {
+                    setTimeout(async () => {
+                        const messages = await fetchChatHistory(clientPhone);
+                        renderChat(messages, clientPhone, true);
+                    }, 1200);
+                } else {
+                    alert('Failed to send voice message: ' + (result.message || result.error || 'Unknown error'));
+                }
+            } catch (err) {
+                alert('Voice upload failed: ' + (err.message || err));
+            }
+            uploadVoiceBtn.disabled = false;
+            uploadVoiceBtn.style.opacity = '';
+        });
+
         // --- Attachment Sending Logic ---
         const attachBtn = document.getElementById('attachBtn');
         const attachmentInput = document.getElementById('attachmentInput');
@@ -431,3 +486,4 @@
     </script>
 </body>
 </html>
+``` 

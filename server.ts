@@ -281,15 +281,17 @@ const upload = multer({ dest: voicesDir });
 
 app.post('/send-voice-message', upload.single('voice'), async (req: Request & { file?: Express.Multer.File }, res): Promise<any> => {
     try {
-        const { clientId, phonenumber, leadId, userId } = req.body;
+        const { clientId, phonenumber, leadId, userId, convert } = req.body;
         if (!req.file) {
             return res.status(400).json({ success: false, message: 'No voice file uploaded' });
         }
-        // Rename file to have correct extension for listenability
+        // Determine extension
         let ext = '';
         if (req.file.originalname.endsWith('.webm')) ext = '.webm';
         else if (req.file.originalname.endsWith('.ogg')) ext = '.ogg';
         else if (req.file.originalname.endsWith('.wav')) ext = '.wav';
+        else if (req.file.originalname.endsWith('.mp3')) ext = '.mp3';
+        else if (req.file.originalname.endsWith('.m4a')) ext = '.m4a';
         else ext = path.extname(req.file.originalname) || '.webm';
 
         const newPath = req.file.path + ext;
@@ -323,57 +325,41 @@ app.post('/send-voice-message', upload.single('voice'), async (req: Request & { 
             return res.status(400).json({ success: false, message: 'Unsupported audio format' });
         }
 
-        // --- Always convert to OGG/Opus for WhatsApp mobile compatibility ---
-        const oggPath = newPath.replace(ext, '.ogg');
-        let sendPath = oggPath;
-        try {
-            const ffmpeg = require('fluent-ffmpeg');
-            // Set ffmpeg path explicitly to your actual ffmpeg.exe location
-            const ffmpegPath = 'C:\\ffmpeg\\ffmpeg-2025-05-07-git-1b643e3f65-full_build\\bin\\ffmpeg.exe';
-            ffmpeg.setFfmpegPath(ffmpegPath);
+        // --- Always convert to OGG/Opus for WhatsApp mobile compatibility if requested or not already ogg ---
+        let sendPath = newPath;
+        if (convert === 'true' || ext !== '.ogg') {
+            const oggPath = newPath.replace(ext, '.ogg');
+            try {
+                const ffmpeg = require('fluent-ffmpeg');
+                const ffmpegPath = 'C:\\ffmpeg\\ffmpeg-2025-05-07-git-1b643e3f65-full_build\\bin\\ffmpeg.exe';
+                ffmpeg.setFfmpegPath(ffmpegPath);
 
-            // Debug: print ffmpeg path and version
-            ffmpeg()._getFfmpegPath((err: any, foundPath: string) => {
-                if (err || !foundPath) {
-                    console.error('ffmpeg binary not found. Please ensure ffmpeg is installed and in your PATH or set FFMPEG_PATH.');
-                } else {
-                    console.log('Using ffmpeg binary at:', foundPath);
-                    const { exec } = require('child_process');
-                    exec(`"${foundPath}" -version`, (error: any, stdout: string, stderr: string) => {
-                        if (error) {
-                            console.error('Error running ffmpeg -version:', error);
-                        } else {
-                            console.log('ffmpeg -version output:\n', stdout);
-                        }
-                    });
-                }
-            });
-
-            // Convert to ogg/opus
-            await new Promise<void>((resolve, reject) => {
-                ffmpeg(newPath)
-                    .audioCodec('libopus')
-                    .format('ogg')
-                    .on('start', (cmd: string) => {
-                        console.log('ffmpeg command:', cmd);
-                    })
-                    .on('end', () => {
-                        console.log('ffmpeg conversion finished:', oggPath);
-                        resolve();
-                    })
-                    .on('error', (err: any) => {
-                        console.error('ffmpeg conversion error:', err);
-                        reject(err);
-                    })
-                    .save(oggPath);
-            });
-        } catch (err) {
-            console.error('ffmpeg conversion failed:', err);
-            return res.status(500).json({
-                success: false,
-                message: 'Failed to convert audio to WhatsApp-compatible format. Make sure ffmpeg is installed and available in your PATH, or set the correct ffmpeg path in server.ts.',
-                error: err instanceof Error ? err.message : String(err)
-            });
+                await new Promise<void>((resolve, reject) => {
+                    ffmpeg(newPath)
+                        .audioCodec('libopus')
+                        .format('ogg')
+                        .on('start', (cmd: string) => {
+                            console.log('ffmpeg command:', cmd);
+                        })
+                        .on('end', () => {
+                            console.log('ffmpeg conversion finished:', oggPath);
+                            resolve();
+                        })
+                        .on('error', (err: any) => {
+                            console.error('ffmpeg conversion error:', err);
+                            reject(err);
+                        })
+                        .save(oggPath);
+                });
+                sendPath = oggPath;
+            } catch (err) {
+                console.error('ffmpeg conversion failed:', err);
+                return res.status(500).json({
+                    success: false,
+                    message: 'Failed to convert audio to WhatsApp-compatible format. Make sure ffmpeg is installed and available in your PATH, or set the correct ffmpeg path in server.ts.',
+                    error: err instanceof Error ? err.message : String(err)
+                });
+            }
         }
 
         // --- Try sending as voice note (PTT) ---

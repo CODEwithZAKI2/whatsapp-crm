@@ -380,12 +380,12 @@ if (!fs.existsSync(voicesDir))
     fs.mkdirSync(voicesDir, { recursive: true });
 var upload = multer({ dest: voicesDir });
 app.post('/send-voice-message', upload.single('voice'), function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
-    var _a, clientId, phonenumber, leadId, userId, ext, newPath_1, phone, rows, numbers, chatId, stat, allowedExts, oggPath_1, sendPath, ffmpeg_1, ffmpegPath, err_5, media, client, err_6, err2_1, err_7, errorMsg;
+    var _a, clientId, phonenumber, leadId, userId, convert, ext, newPath_1, phone, rows, numbers, chatId, stat, allowedExts, sendPath, oggPath_1, ffmpeg_1, ffmpegPath, err_5, media, client, err_6, err2_1, err_7, errorMsg;
     return __generator(this, function (_b) {
         switch (_b.label) {
             case 0:
                 _b.trys.push([0, 17, , 18]);
-                _a = req.body, clientId = _a.clientId, phonenumber = _a.phonenumber, leadId = _a.leadId, userId = _a.userId;
+                _a = req.body, clientId = _a.clientId, phonenumber = _a.phonenumber, leadId = _a.leadId, userId = _a.userId, convert = _a.convert;
                 if (!req.file) {
                     return [2 /*return*/, res.status(400).json({ success: false, message: 'No voice file uploaded' })];
                 }
@@ -396,6 +396,10 @@ app.post('/send-voice-message', upload.single('voice'), function (req, res) { re
                     ext = '.ogg';
                 else if (req.file.originalname.endsWith('.wav'))
                     ext = '.wav';
+                else if (req.file.originalname.endsWith('.mp3'))
+                    ext = '.mp3';
+                else if (req.file.originalname.endsWith('.m4a'))
+                    ext = '.m4a';
                 else
                     ext = path.extname(req.file.originalname) || '.webm';
                 newPath_1 = req.file.path + ext;
@@ -429,33 +433,15 @@ app.post('/send-voice-message', upload.single('voice'), function (req, res) { re
                     fs.unlinkSync(newPath_1);
                     return [2 /*return*/, res.status(400).json({ success: false, message: 'Unsupported audio format' })];
                 }
+                sendPath = newPath_1;
+                if (!(convert === 'true' || ext !== '.ogg')) return [3 /*break*/, 6];
                 oggPath_1 = newPath_1.replace(ext, '.ogg');
-                sendPath = oggPath_1;
                 _b.label = 3;
             case 3:
                 _b.trys.push([3, 5, , 6]);
                 ffmpeg_1 = require('fluent-ffmpeg');
                 ffmpegPath = 'C:\\ffmpeg\\ffmpeg-2025-05-07-git-1b643e3f65-full_build\\bin\\ffmpeg.exe';
                 ffmpeg_1.setFfmpegPath(ffmpegPath);
-                // Debug: print ffmpeg path and version
-                ffmpeg_1()._getFfmpegPath(function (err, foundPath) {
-                    if (err || !foundPath) {
-                        console.error('ffmpeg binary not found. Please ensure ffmpeg is installed and in your PATH or set FFMPEG_PATH.');
-                    }
-                    else {
-                        console.log('Using ffmpeg binary at:', foundPath);
-                        var exec = require('child_process').exec;
-                        exec("\"".concat(foundPath, "\" -version"), function (error, stdout, stderr) {
-                            if (error) {
-                                console.error('Error running ffmpeg -version:', error);
-                            }
-                            else {
-                                console.log('ffmpeg -version output:\n', stdout);
-                            }
-                        });
-                    }
-                });
-                // Convert to ogg/opus
                 return [4 /*yield*/, new Promise(function (resolve, reject) {
                         ffmpeg_1(newPath_1)
                             .audioCodec('libopus')
@@ -474,8 +460,8 @@ app.post('/send-voice-message', upload.single('voice'), function (req, res) { re
                             .save(oggPath_1);
                     })];
             case 4:
-                // Convert to ogg/opus
                 _b.sent();
+                sendPath = oggPath_1;
                 return [3 /*break*/, 6];
             case 5:
                 err_5 = _b.sent();
