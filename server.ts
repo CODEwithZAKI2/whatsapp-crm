@@ -285,13 +285,14 @@ app.post('/send-voice-message', upload.single('voice'), async (req: Request & { 
         if (!req.file) {
             return res.status(400).json({ success: false, message: 'No voice file uploaded' });
         }
-        // Determine extension
+        // Accept .mp4 but always convert to WhatsApp-compatible .ogg/opus
         let ext = '';
         if (req.file.originalname.endsWith('.webm')) ext = '.webm';
         else if (req.file.originalname.endsWith('.ogg')) ext = '.ogg';
         else if (req.file.originalname.endsWith('.wav')) ext = '.wav';
         else if (req.file.originalname.endsWith('.mp3')) ext = '.mp3';
         else if (req.file.originalname.endsWith('.m4a')) ext = '.m4a';
+        else if (req.file.originalname.endsWith('.mp4')) ext = '.mp4';
         else ext = path.extname(req.file.originalname) || '.webm';
 
         const newPath = req.file.path + ext;
@@ -319,47 +320,56 @@ app.post('/send-voice-message', upload.single('voice'), async (req: Request & { 
             fs.unlinkSync(newPath);
             return res.status(400).json({ success: false, message: 'Voice message is too large (max 16MB)' });
         }
-        const allowedExts = ['.webm', '.ogg', '.wav', '.mp3', '.m4a'];
+        // Accept mp4/m4a but always convert
+        const allowedExts = ['.webm', '.ogg', '.wav', '.mp3', '.m4a', '.mp4'];
         if (!allowedExts.includes(ext)) {
             fs.unlinkSync(newPath);
             return res.status(400).json({ success: false, message: 'Unsupported audio format' });
         }
 
-        // --- Always convert to OGG/Opus for WhatsApp mobile compatibility if requested or not already ogg ---
+        // --- Always convert to WhatsApp-compatible OGG/Opus ---
         let sendPath = newPath;
-        if (convert === 'true' || ext !== '.ogg') {
-            const oggPath = newPath.replace(ext, '.ogg');
-            try {
-                const ffmpeg = require('fluent-ffmpeg');
-                const ffmpegPath = 'C:\\ffmpeg\\ffmpeg-2025-05-07-git-1b643e3f65-full_build\\bin\\ffmpeg.exe';
-                ffmpeg.setFfmpegPath(ffmpegPath);
-
-                await new Promise<void>((resolve, reject) => {
-                    ffmpeg(newPath)
-                        .audioCodec('libopus')
-                        .format('ogg')
-                        .on('start', (cmd: string) => {
-                            console.log('ffmpeg command:', cmd);
-                        })
-                        .on('end', () => {
-                            console.log('ffmpeg conversion finished:', oggPath);
-                            resolve();
-                        })
-                        .on('error', (err: any) => {
-                            console.error('ffmpeg conversion error:', err);
-                            reject(err);
-                        })
-                        .save(oggPath);
-                });
-                sendPath = oggPath;
-            } catch (err) {
-                console.error('ffmpeg conversion failed:', err);
-                return res.status(500).json({
-                    success: false,
-                    message: 'Failed to convert audio to WhatsApp-compatible format. Make sure ffmpeg is installed and available in your PATH, or set the correct ffmpeg path in server.ts.',
-                    error: err instanceof Error ? err.message : String(err)
-                });
-            }
+        let converted = false;
+        const oggPath = newPath.replace(ext, '.ogg');
+        try {
+            const ffmpeg = require('fluent-ffmpeg');
+            const ffmpegPath = 'C:\\ffmpeg\\ffmpeg-2025-05-07-git-1b643e3f65-full_build\\bin\\ffmpeg.exe';
+            ffmpeg.setFfmpegPath(ffmpegPath);
+            // --- WhatsApp expects: mono, 16kHz or 48kHz, opus codec, .ogg container ---
+            await new Promise<void>((resolve, reject) => {
+                ffmpeg(newPath)
+                    .audioChannels(1)
+                    .audioFrequency(16000)
+                    .audioCodec('libopus')
+                    .format('ogg')
+                    .outputOptions([
+                        '-application', 'voip', // WhatsApp prefers voip profile
+                        '-b:a', '32k',         // Lower bitrate for voice note
+                        '-compression_level', '10',
+                        '-vn' // ensure no video stream
+                    ])
+                    .on('start', (cmd: string) => {
+                        console.log('ffmpeg command:', cmd);
+                    })
+                    .on('end', () => {
+                        console.log('ffmpeg conversion finished:', oggPath);
+                        resolve();
+                    })
+                    .on('error', (err: any) => {
+                        console.error('ffmpeg conversion error:', err);
+                        reject(err);
+                    })
+                    .save(oggPath);
+            });
+            sendPath = oggPath;
+            converted = true;
+        } catch (err) {
+            console.error('ffmpeg conversion failed:', err);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to convert audio to WhatsApp-compatible format. Make sure ffmpeg is installed and available in your PATH, or set the correct ffmpeg path in server.ts.',
+                error: err instanceof Error ? err.message : String(err)
+            });
         }
 
         // --- Try sending as voice note (PTT) ---
@@ -377,6 +387,14 @@ app.post('/send-voice-message', upload.single('voice'), async (req: Request & { 
                 return res.status(500).json({ success: false, message: 'Failed to send voice message (WhatsApp rejected the file)', error: err2 instanceof Error ? err2.message : String(err2) });
             }
         }
+
+        // Clean up temp files
+        try {
+            fs.unlinkSync(newPath);
+            if (converted && sendPath !== newPath && fs.existsSync(sendPath)) {
+                fs.unlinkSync(sendPath);
+            }
+        } catch {}
 
         res.json({ success: true, message: 'Voice message sent!' });
     } catch (err: unknown) {

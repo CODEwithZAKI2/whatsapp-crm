@@ -380,7 +380,7 @@ if (!fs.existsSync(voicesDir))
     fs.mkdirSync(voicesDir, { recursive: true });
 var upload = multer({ dest: voicesDir });
 app.post('/send-voice-message', upload.single('voice'), function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
-    var _a, clientId, phonenumber, leadId, userId, convert, ext, newPath_1, phone, rows, numbers, chatId, stat, allowedExts, sendPath, oggPath_1, ffmpeg_1, ffmpegPath, err_5, media, client, err_6, err2_1, err_7, errorMsg;
+    var _a, clientId, phonenumber, leadId, userId, convert, ext, newPath_1, phone, rows, numbers, chatId, stat, allowedExts, sendPath, converted, oggPath_1, ffmpeg_1, ffmpegPath, err_5, media, client, err_6, err2_1, err_7, errorMsg;
     return __generator(this, function (_b) {
         switch (_b.label) {
             case 0:
@@ -400,6 +400,8 @@ app.post('/send-voice-message', upload.single('voice'), function (req, res) { re
                     ext = '.mp3';
                 else if (req.file.originalname.endsWith('.m4a'))
                     ext = '.m4a';
+                else if (req.file.originalname.endsWith('.mp4'))
+                    ext = '.mp4';
                 else
                     ext = path.extname(req.file.originalname) || '.webm';
                 newPath_1 = req.file.path + ext;
@@ -428,13 +430,13 @@ app.post('/send-voice-message', upload.single('voice'), function (req, res) { re
                     fs.unlinkSync(newPath_1);
                     return [2 /*return*/, res.status(400).json({ success: false, message: 'Voice message is too large (max 16MB)' })];
                 }
-                allowedExts = ['.webm', '.ogg', '.wav', '.mp3', '.m4a'];
+                allowedExts = ['.webm', '.ogg', '.wav', '.mp3', '.m4a', '.mp4'];
                 if (!allowedExts.includes(ext)) {
                     fs.unlinkSync(newPath_1);
                     return [2 /*return*/, res.status(400).json({ success: false, message: 'Unsupported audio format' })];
                 }
                 sendPath = newPath_1;
-                if (!(convert === 'true' || ext !== '.ogg')) return [3 /*break*/, 6];
+                converted = false;
                 oggPath_1 = newPath_1.replace(ext, '.ogg');
                 _b.label = 3;
             case 3:
@@ -442,10 +444,19 @@ app.post('/send-voice-message', upload.single('voice'), function (req, res) { re
                 ffmpeg_1 = require('fluent-ffmpeg');
                 ffmpegPath = 'C:\\ffmpeg\\ffmpeg-2025-05-07-git-1b643e3f65-full_build\\bin\\ffmpeg.exe';
                 ffmpeg_1.setFfmpegPath(ffmpegPath);
+                // --- WhatsApp expects: mono, 16kHz or 48kHz, opus codec, .ogg container ---
                 return [4 /*yield*/, new Promise(function (resolve, reject) {
                         ffmpeg_1(newPath_1)
+                            .audioChannels(1)
+                            .audioFrequency(16000)
                             .audioCodec('libopus')
                             .format('ogg')
+                            .outputOptions([
+                            '-application', 'voip', // WhatsApp prefers voip profile
+                            '-b:a', '32k', // Lower bitrate for voice note
+                            '-compression_level', '10',
+                            '-vn' // ensure no video stream
+                        ])
                             .on('start', function (cmd) {
                             console.log('ffmpeg command:', cmd);
                         })
@@ -460,8 +471,10 @@ app.post('/send-voice-message', upload.single('voice'), function (req, res) { re
                             .save(oggPath_1);
                     })];
             case 4:
+                // --- WhatsApp expects: mono, 16kHz or 48kHz, opus codec, .ogg container ---
                 _b.sent();
                 sendPath = oggPath_1;
+                converted = true;
                 return [3 /*break*/, 6];
             case 5:
                 err_5 = _b.sent();
@@ -500,6 +513,14 @@ app.post('/send-voice-message', upload.single('voice'), function (req, res) { re
                 return [2 /*return*/, res.status(500).json({ success: false, message: 'Failed to send voice message (WhatsApp rejected the file)', error: err2_1 instanceof Error ? err2_1.message : String(err2_1) })];
             case 15: return [3 /*break*/, 16];
             case 16:
+                // Clean up temp files
+                try {
+                    fs.unlinkSync(newPath_1);
+                    if (converted && sendPath !== newPath_1 && fs.existsSync(sendPath)) {
+                        fs.unlinkSync(sendPath);
+                    }
+                }
+                catch (_d) { }
                 res.json({ success: true, message: 'Voice message sent!' });
                 return [3 /*break*/, 18];
             case 17:
